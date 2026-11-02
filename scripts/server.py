@@ -149,6 +149,7 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
         color_mode = req.get("color_mode", "composite")
         page_range = req.get("page_range")
         glob_pattern = req.get("glob", "*.jpg")
+        force = req.get("force", False)
         out_dir = repo_root / "outputs" / "gui_batch"
 
         try:
@@ -160,6 +161,7 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
                 glob_pattern=glob_pattern,
                 page_range=page_range,
                 color_mode=color_mode,
+                force=force,
             )
             self.send_json({"status": "success", "summary": summary})
         except (ConnectionResetError, BrokenPipeError):

@@ -278,6 +278,13 @@ class MangaShotPipeline:
 
         # Translate using positional JSON if required
         verified_items = pre_translated_items
+        if verified_items is None and json_path and Path(json_path).is_file():
+            try:
+                cached_data = json.loads(Path(json_path).read_text(encoding="utf-8"))
+                verified_items = cached_data.get("bubbles")
+            except Exception:
+                verified_items = None
+
         if verified_items is None and ocr_items and exec_action in ("translate", "advanced"):
             context = f"单页漫画翻译：{img_path.name}。请根据语境和画面阅读顺序进行自然贴切的汉化。"
             verified_items = self.translator.translate_items(ocr_items, context_hint=context)
@@ -441,6 +448,7 @@ class MangaShotPipeline:
 
         pages_to_process = []
         all_chapter_items: List[Dict[str, Any]] = []
+        page_item_map: Dict[str, List[Dict[str, Any]]] = {}
         global_id_counter = 1
 
         for idx, page in enumerate(pages, 1):
@@ -450,6 +458,18 @@ class MangaShotPipeline:
                 continue
 
             pages_to_process.append(page)
+            json_file = json_dir / f"{page.stem}.json" if json_dir else None
+            if json_file and json_file.is_file():
+                try:
+                    c_meta = json.loads(json_file.read_text(encoding="utf-8"))
+                    cached_items = c_meta.get("bubbles", [])
+                    if cached_items:
+                        page_item_map[page.name] = cached_items
+                        print(f"  [{idx}/{len(pages)}] {page.name}: loaded {len(cached_items)} cached dialogue items.")
+                        continue
+                except Exception:
+                    pass
+
             _, items = self.extract_page_items(page)
             for it in items:
                 it["global_id"] = global_id_counter
@@ -463,7 +483,6 @@ class MangaShotPipeline:
             return []
 
         # Whole-chapter translation if translation is needed
-        page_item_map: Dict[str, List[Dict[str, Any]]] = {}
         if all_chapter_items and target_mode in ("auto", "advanced", "both", "translate"):
             print(f"\nTranslating {len(all_chapter_items)} items with global chapter context...")
             chapter_context = (

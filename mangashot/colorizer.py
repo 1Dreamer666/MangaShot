@@ -32,12 +32,14 @@ class MangaColorizer:
         cfg: Optional[Dict[str, Any]] = None,
     ):
         self.base_url = comfyui_url.rstrip("/")
-        self.models = models or {
+        import os
+        raw_models = models or {
             "unet": "FLUX.2/flux-2-klein-base-9b-Q3_K_M.gguf",
             "clip": "Qwen/qwen_3_8b_fp4mixed.safetensors",
             "vae": "FLUX.2/flux2-vae.safetensors",
             "lora": "FLUX.2/manga_colorization.safetensors",
         }
+        self.models = {k: os.path.normpath(v) for k, v in raw_models.items()}
         self.cfg = cfg or {
             "megapixels": 0.5,
             "resolution_steps": 16,
@@ -111,17 +113,23 @@ class MangaColorizer:
 
         page_filename = f"page_{uuid.uuid4().hex[:8]}.png"
 
-        uploaded_page = self.upload_image(page_buf.tobytes(), page_filename)
-        uploaded_ref = self.upload_image(ref_buf if isinstance(ref_buf, bytes) else ref_buf.tobytes(), ref_filename)
+        try:
+            uploaded_page = self.upload_image(page_buf.tobytes(), page_filename)
+            uploaded_ref = self.upload_image(ref_buf if isinstance(ref_buf, bytes) else ref_buf.tobytes(), ref_filename)
 
-        prompt_graph = self._build_prompt_graph(uploaded_page, uploaded_ref, prefix)
-        client_id = uuid.uuid4().hex
-        payload = {"prompt": prompt_graph, "client_id": client_id}
-        resp = requests.post(f"{self.base_url}/prompt", json=payload, timeout=60)
-        resp.raise_for_status()
-        prompt_id = resp.json()["prompt_id"]
+            prompt_graph = self._build_prompt_graph(uploaded_page, uploaded_ref, prefix)
+            client_id = uuid.uuid4().hex
+            payload = {"prompt": prompt_graph, "client_id": client_id}
+            resp = requests.post(f"{self.base_url}/prompt", json=payload, timeout=60)
+            resp.raise_for_status()
+            prompt_id = resp.json()["prompt_id"]
 
-        raw_color_bgr = self._poll_and_download(prompt_id, timeout=self.cfg.get("timeout", 3600))
+            raw_color_bgr = self._poll_and_download(prompt_id, timeout=self.cfg.get("timeout", 3600))
+        except Exception as e:
+            if fallback_on_offline and reference_path_or_bgr is not None:
+                print(f"[Warning] ComfyUI execution failed ({e}). Falling back to reference-guided LAB Chroma transfer.")
+                return self.colorize_transfer(page_bgr, reference_path_or_bgr, color_mode=color_mode)
+            raise ComfyColorizeError(f"ComfyUI colorization failed: {e}")
 
         h, w = page_bgr.shape[:2]
         if color_mode == "direct":
