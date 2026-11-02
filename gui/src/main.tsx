@@ -758,14 +758,16 @@ interface ConnectedGroupOption<T extends string> {
   id: T;
   label: string;
   icon?: React.ReactNode;
-  badge?: number;
+  badge?: number | string;
+  tooltipTitle?: string;
+  tooltipText?: string;
 }
 
 function Md3ConnectedButtonGroup<T extends string>({
   options,
   value,
   onChange,
-  height = '44px',
+  height = '42px',
 }: {
   options: ConnectedGroupOption<T>[];
   value: T;
@@ -799,9 +801,8 @@ function Md3ConnectedButtonGroup<T extends string>({
         const tr = selected || isLast ? '9999px' : innerR;
         const br = selected || isLast ? '9999px' : innerR;
 
-        return (
+        const btnElement = (
           <button
-            key={opt.id}
             type="button"
             role="tab"
             aria-selected={selected}
@@ -811,7 +812,7 @@ function Md3ConnectedButtonGroup<T extends string>({
             onPointerLeave={() => setPressedId(null)}
             className="md3-focus-ring"
             style={{
-              flex: selected ? 1.24 : pressed ? 1.12 : 1,
+              width: '100%',
               height,
               paddingInline: '14px',
               borderRadius: `${tl} ${tr} ${br} ${bl}`,
@@ -833,18 +834,16 @@ function Md3ConnectedButtonGroup<T extends string>({
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               transition:
-                'flex var(--md-sys-motion-spring-expressive-fast-spatial), border-radius var(--md-sys-motion-spring-expressive-fast-spatial), background-color var(--md-sys-motion-spring-expressive-fast-effects), color var(--md-sys-motion-spring-expressive-fast-effects)',
+                'border-radius var(--md-sys-motion-spring-expressive-fast-spatial), background-color var(--md-sys-motion-spring-expressive-fast-effects), color var(--md-sys-motion-spring-expressive-fast-effects)',
             }}
           >
-            {selected ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
-              </svg>
-            ) : (
+            {opt.icon ? (
               opt.icon
-            )}
+            ) : selected ? (
+              <Md3Icon name="check" size={18} />
+            ) : null}
             <span>{opt.label}</span>
-            {typeof opt.badge === 'number' && (
+            {opt.badge !== undefined && (
               <span
                 style={{
                   padding: '1px 7px',
@@ -863,6 +862,25 @@ function Md3ConnectedButtonGroup<T extends string>({
               </span>
             )}
           </button>
+        );
+
+        return (
+          <div
+            key={opt.id}
+            style={{
+              flex: selected ? 1.25 : pressed ? 1.12 : 1,
+              transition: 'flex var(--md-sys-motion-spring-expressive-fast-spatial)',
+              display: 'flex',
+            }}
+          >
+            {opt.tooltipText ? (
+              <Md3Tooltip title={opt.tooltipTitle} text={opt.tooltipText}>
+                {btnElement}
+              </Md3Tooltip>
+            ) : (
+              btnElement
+            )}
+          </div>
         );
       })}
     </div>
@@ -888,12 +906,14 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
   onChange,
   onFocus,
   onBlur,
+  placeholder,
   ...rest
 }) => {
   const inputId = useId();
   const [focused, setFocused] = useState(false);
   const strVal = String(value ?? '');
-  const isFloating = focused || strVal.length > 0;
+  const isPopulated = strVal.length > 0;
+  const isFloating = focused || isPopulated;
 
   const borderColor = focused ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline)';
   const borderWidth = focused ? '2px' : '1px';
@@ -901,16 +921,19 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
     ? 'var(--md-sys-color-primary)'
     : 'var(--md-sys-color-on-surface-variant)';
 
+  // 左端第一段 outline 宽度：有 leadingIcon 时延伸至 38px，使得标签切口恰好在 leadingIcon 之后展开
+  const leftSegmentWidth = leadingIcon ? '38px' : '12px';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
       <div
         style={{
           position: 'relative',
-          height: dense ? '44px' : '54px',
+          height: dense ? '44px' : '52px',
           display: 'flex',
           alignItems: 'center',
           paddingInlineStart: leadingIcon ? '12px' : '16px',
-          paddingInlineEnd: '14px',
+          paddingInlineEnd: '12px',
           gap: '10px',
           backgroundColor: 'transparent',
         }}
@@ -925,9 +948,10 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
             pointerEvents: 'none',
           }}
         >
+          {/* 左端段 */}
           <div
             style={{
-              width: '12px',
+              width: leftSegmentWidth,
               borderTop: `${borderWidth} solid ${borderColor}`,
               borderLeft: `${borderWidth} solid ${borderColor}`,
               borderBottom: `${borderWidth} solid ${borderColor}`,
@@ -935,11 +959,12 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
               transition: 'border-color var(--md-sys-motion-spring-expressive-fast-effects)',
             }}
           />
+          {/* 切口段：浮动时断开顶部边框以容纳标签 */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              paddingInline: isFloating ? '5px' : '0px',
+              paddingInline: isFloating ? '4px' : '0px',
               borderTop: isFloating ? 'none' : `${borderWidth} solid ${borderColor}`,
               borderBottom: `${borderWidth} solid ${borderColor}`,
               transition: 'border-color var(--md-sys-motion-spring-expressive-fast-effects)',
@@ -950,14 +975,16 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
                 fontSize: '12px',
                 fontWeight: 600,
                 visibility: 'hidden',
-                maxWidth: isFloating ? '480px' : '0px',
+                maxWidth: isFloating ? '380px' : '0px',
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
+                transition: 'max-width var(--md-sys-motion-spring-expressive-fast-spatial)',
               }}
             >
               {label}
             </span>
           </div>
+          {/* 右端延伸段 */}
           <div
             style={{
               flex: 1,
@@ -988,16 +1015,19 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
             htmlFor={inputId}
             style={{
               position: 'absolute',
-              left: isFloating && leadingIcon ? '-26px' : '0px',
+              left: '0px',
               top: isFloating ? '0px' : '50%',
               transform: 'translateY(-50%)',
-              fontSize: isFloating ? '12px' : '14px',
+              fontSize: isFloating ? '12px' : dense ? '13px' : '14px',
               fontWeight: isFloating ? 600 : 400,
               color: labelColor,
               pointerEvents: 'none',
               whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: 'calc(100% - 16px)',
               transition:
-                'top var(--md-sys-motion-spring-expressive-fast-spatial), left var(--md-sys-motion-spring-expressive-fast-spatial), font-size var(--md-sys-motion-spring-expressive-fast-spatial), color var(--md-sys-motion-spring-expressive-fast-effects)',
+                'top var(--md-sys-motion-spring-expressive-fast-spatial), font-size var(--md-sys-motion-spring-expressive-fast-spatial), color var(--md-sys-motion-spring-expressive-fast-effects)',
             }}
           >
             {label}
@@ -1005,6 +1035,7 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
           <input
             id={inputId}
             value={value}
+            placeholder={focused ? placeholder : undefined}
             onChange={onChange}
             onFocus={(e) => {
               setFocused(true);
@@ -1040,12 +1071,169 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
           style={{
             padding: '4px 14px 0',
             color: 'var(--md-sys-color-on-surface-variant)',
+            fontSize: '11px',
+            lineHeight: '14px',
           }}
         >
           {supportingText}
         </span>
       )}
     </div>
+  );
+};
+
+/** 4.6 MD3 规范工具提示 (Plain & Rich Tooltip) */
+interface Md3TooltipProps {
+  title?: string;
+  text?: string;
+  children: React.ReactNode;
+  position?: 'top' | 'bottom';
+}
+
+const Md3Tooltip: React.FC<Md3TooltipProps> = ({
+  title,
+  text,
+  children,
+  position = 'top',
+}) => {
+  const [visible, setVisible] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  if (!text && !title) return <>{children}</>;
+
+  const handleEnter = () => {
+    timerRef.current = window.setTimeout(() => setVisible(true), 150);
+  };
+
+  const handleLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setVisible(false);
+  };
+
+  return (
+    <div
+      style={{ position: 'relative', display: 'inline-flex', width: '100%' }}
+      onPointerEnter={handleEnter}
+      onPointerLeave={handleLeave}
+      onFocus={handleEnter}
+      onBlur={handleLeave}
+    >
+      {children}
+      {visible && (
+        <div
+          role="tooltip"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            [position === 'top' ? 'bottom' : 'top']: 'calc(100% + 8px)',
+            zIndex: 9999,
+            pointerEvents: 'none',
+            maxWidth: '300px',
+            minWidth: '180px',
+            padding: title ? '10px 14px' : '6px 12px',
+            borderRadius: 'var(--md-sys-shape-corner-medium)',
+            backgroundColor: 'var(--md-sys-color-inverse-surface)',
+            color: 'var(--md-sys-color-inverse-on-surface)',
+            boxShadow: 'var(--md-sys-elevation-level2)',
+            fontSize: '12px',
+            lineHeight: '18px',
+            animation: 'md3-tooltip-enter var(--md-sys-motion-spring-expressive-fast-spatial) forwards',
+            whiteSpace: 'normal',
+            wordBreak: 'break-word',
+          }}
+        >
+          {title && (
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: '13px',
+                marginBottom: '3px',
+                color: 'var(--md-sys-color-inverse-primary)',
+              }}
+            >
+              {title}
+            </div>
+          )}
+          {text && <div style={{ opacity: 0.94 }}>{text}</div>}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** 4.7 MD3 标准图标按钮 (Icon Button with Tooltip & State Layer) */
+interface Md3IconButtonProps {
+  icon: string;
+  tooltip: string;
+  onClick: () => void;
+  disabled?: boolean;
+  colorVar?: string;
+  active?: boolean;
+  size?: number;
+}
+
+const Md3IconButton: React.FC<Md3IconButtonProps> = ({
+  icon,
+  tooltip,
+  onClick,
+  disabled = false,
+  colorVar,
+  active = false,
+  size = 20,
+}) => {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  const fgColor = disabled
+    ? 'var(--md-sys-color-outline)'
+    : colorVar || (active ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)');
+
+  const bgColor = disabled
+    ? 'transparent'
+    : pressed
+      ? 'var(--md-sys-color-surface-container-highest)'
+      : hovered
+        ? 'var(--md-sys-color-surface-container-high)'
+        : active
+          ? 'var(--md-sys-color-surface-container-high)'
+          : 'transparent';
+
+  return (
+    <Md3Tooltip text={tooltip}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => {
+          setHovered(false);
+          setPressed(false);
+        }}
+        onPointerDown={() => setPressed(true)}
+        onPointerUp={() => setPressed(false)}
+        className="md3-focus-ring"
+        aria-label={tooltip}
+        style={{
+          width: '36px',
+          height: '36px',
+          borderRadius: 'var(--md-sys-shape-corner-full)',
+          border: 'none',
+          backgroundColor: bgColor,
+          color: fgColor,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          flexShrink: 0,
+          transition:
+            'background-color var(--md-sys-motion-spring-expressive-fast-effects), color var(--md-sys-motion-spring-expressive-fast-effects), transform var(--md-sys-motion-spring-expressive-fast-spatial)',
+          transform: pressed && !disabled ? 'scale(0.92)' : 'scale(1)',
+        }}
+      >
+        <Md3Icon name={icon} size={size} fill={active ? 1 : 0} />
+      </button>
+    </Md3Tooltip>
   );
 };
 
@@ -1426,32 +1614,32 @@ export default function App() {
     {
       id: 'advanced',
       icon: 'bolt',
-      title: '进阶模式 (推荐: 先擦后色再嵌字)',
-      desc: '先擦除生肉日文->无字全彩上色->高锐度重嵌中文，绝不糊字',
-      badge: 'M3 Expressive 推荐',
+      title: '进阶汉化上色',
+      desc: '先擦除生肉日文 -> 无字全彩上色 -> 矢量高锐重嵌，绝不糊字',
+      badge: 'M3 推荐',
     },
     {
       id: 'auto',
       icon: 'auto_fix_high',
-      title: '智能全自动 (Auto-Detect)',
+      title: '智能全自动',
       desc: '自动检测色彩与语言：黑白自动上色，非中文自动汉化',
     },
     {
       id: 'both',
       icon: 'palette',
-      title: '翻译并上色 (Both)',
+      title: '翻译并上色',
       desc: '强制执行汉化翻译与全彩上色双重流程',
     },
     {
       id: 'translate',
       icon: 'translate',
-      title: '仅汉化翻译 (Translate Only)',
+      title: '仅汉化翻译',
       desc: '仅执行气泡检测、OCR、连贯翻译与排版嵌字',
     },
     {
       id: 'colorize',
       icon: 'brush',
-      title: '仅漫画上色 (Colorize Only)',
+      title: '仅漫画上色',
       desc: '仅基于参考图执行扩散上色与高频线稿复合',
     },
   ];
@@ -1757,29 +1945,72 @@ export default function App() {
               }}
             >
               <label className="md3-title-small" style={{ color: 'var(--md-sys-color-on-surface)' }}>
-                色彩处理模式 (Color Mode)
+                色彩处理模式
               </label>
-              <span className="md3-label-small" style={{ color: 'var(--md-sys-color-primary)' }}>
-                {colorMode === 'composite' ? '线稿保护开启' : '浓烈扩散模式'}
+              <span
+                style={{
+                  padding: '2px 8px',
+                  borderRadius: 'var(--md-sys-shape-corner-full)',
+                  backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                  color: 'var(--md-sys-color-primary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  transition: 'all var(--md-sys-motion-spring-expressive-fast-effects)',
+                }}
+              >
+                {colorMode === 'composite' ? '高保真线稿复合' : '扩散模型直出'}
               </span>
             </div>
             <Md3ConnectedButtonGroup
               value={colorMode}
               onChange={(val) => setColorMode(val as 'composite' | 'direct')}
-              height="40px"
+              height="42px"
               options={[
                 {
                   id: 'composite',
-                  label: '🌈 叠加复合 (推荐: 锐利线稿+纯白气泡)',
+                  label: '叠加复合',
                   icon: <Md3Icon name="layers" size={18} fill={colorMode === 'composite' ? 1 : 0} />,
+                  tooltipTitle: '叠加复合模式 (推荐首选)',
+                  tooltipText:
+                    '基于 MangaColour 算法：提取 FLUX.2 预测的 a/b 色度与原始 2000px 高分辨率线稿导向复合，对白气泡自动漂白，100% 保持原始印刷级矢量锐度。',
                 },
                 {
                   id: 'direct',
-                  label: '🔥 浓烈色彩 (直接上色: 扩散原画风)',
+                  label: '浓烈色彩',
                   icon: <Md3Icon name="local_fire_department" size={18} fill={colorMode === 'direct' ? 1 : 0} />,
+                  tooltipTitle: '浓烈色彩模式 (直接上色)',
+                  tooltipText:
+                    '跳过线稿色度复合，直接输出 FLUX.2 扩散采样的原始画幅。色彩浓厚饱满，呈现扩散原生的厚涂艺术画风。',
                 },
               ]}
             />
+            {/* 动态特性说明胶囊条 */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginTop: '6px',
+                padding: '6px 12px',
+                borderRadius: 'var(--md-sys-shape-corner-small)',
+                backgroundColor: 'var(--md-sys-color-surface-container-low)',
+                color: 'var(--md-sys-color-on-surface-variant)',
+                fontSize: '12px',
+                lineHeight: '16px',
+                transition: 'all var(--md-sys-motion-spring-expressive-fast-effects)',
+              }}
+            >
+              <Md3Icon
+                name={colorMode === 'composite' ? 'verified' : 'auto_awesome'}
+                size={15}
+                style={{ color: 'var(--md-sys-color-primary)', flexShrink: 0 }}
+              />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {colorMode === 'composite'
+                  ? '线稿导向复合：对白框纯白漂白，保持印刷级锐利边缘'
+                  : '扩散模型直出：色彩浓烈饱满，呈现厚涂艺术质感'}
+              </span>
+            </div>
           </div>
 
           {/* 2.3 单页 vs 多章节任务队列模式 (M3 Expressive Connected Button Group) */}
@@ -1787,8 +2018,17 @@ export default function App() {
             value={isBatch ? 'batch' : 'single'}
             onChange={(val) => setIsBatch(val === 'batch')}
             options={[
-              { id: 'single', label: '单页处理模式' },
-              { id: 'batch', label: `多章节任务队列 (${batchQueue.length})` },
+              {
+                id: 'single',
+                label: '单页处理模式',
+                icon: <Md3Icon name="description" size={18} />,
+              },
+              {
+                id: 'batch',
+                label: '多章节任务队列',
+                badge: batchQueue.length,
+                icon: <Md3Icon name="folder_copy" size={18} />,
+              },
             ]}
           />
 
@@ -1796,10 +2036,11 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {!isBatch ? (
               <Md3TextField
-                label="输入漫画单页路径 (Page File)"
+                label="输入漫画单页路径"
                 value={inputPath}
                 onChange={(e) => setInputPath(e.target.value)}
                 leadingIcon={<Md3Icon name="description" size={20} />}
+                placeholder="例如 examples/MOMOUMIX/003.jpg 或输入绝对路径"
                 trailingAction={
                   <button
                     type="button"
@@ -1829,19 +2070,19 @@ export default function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {/* 公共主目录提取 (可选) */}
                 <Md3TextField
-                  label="公共漫画主目录 (Base Directory - 可选)"
+                  label="公共漫画主目录"
                   value={baseDir}
                   onChange={(e) => setBaseDir(e.target.value)}
-                  leadingIcon={<Md3Icon name="home_storage" size={20} />}
-                  placeholder="例如 examples/ (若下方已填完整路径可留空)"
-                  supportingText="提取公共前缀，下方章节卡片仅需填写子文件夹名"
+                  leadingIcon={<Md3Icon name="folder_special" size={20} />}
+                  placeholder="例如 examples/ (留空则各章节使用自身完整路径)"
+                  supportingText="可选：提取公共前缀，下方章节卡片仅需填写子文件夹名"
                 />
 
                 {/* 多章节任务队列卡片列表 */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="md3-title-small" style={{ color: 'var(--md-sys-color-on-surface)' }}>
-                      跨目录章节队列 (Batch Queue)
+                      跨目录章节队列
                     </span>
                     <span className="md3-body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
                       顺序调度 {batchQueue.length} 个任务
@@ -1861,137 +2102,147 @@ export default function App() {
                         gap: '12px',
                       }}
                     >
-                      {/* 第 1 行：章节序号徽标 + 目录路径输入框 + 浏览 / 克隆 / 删除 */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: 'var(--md-sys-shape-corner-small)',
-                            backgroundColor: 'var(--md-sys-color-primary-container)',
-                            color: 'var(--md-sys-color-on-primary-container)',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {task.name}
-                        </span>
-                        <div style={{ flex: 1 }}>
-                          <Md3TextField
-                            label="章节目录路径"
-                            value={task.dirPath}
-                            dense
-                            onChange={(e) => updateTask(task.id, { dirPath: e.target.value })}
-                            leadingIcon={<Md3Icon name="folder_open" size={18} />}
+                      {/* 第 1 行：章节序号徽标与操作工具栏 (浏览 / 克隆 / 删除) */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span
+                            style={{
+                              padding: '3px 10px',
+                              borderRadius: 'var(--md-sys-shape-corner-small)',
+                              backgroundColor: 'var(--md-sys-color-primary-container)',
+                              color: 'var(--md-sys-color-on-primary-container)',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {task.name}
+                          </span>
+                          {task.selectedFiles && task.selectedFiles.length > 0 && (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: 'var(--md-sys-shape-corner-full)',
+                                backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                                color: 'var(--md-sys-color-on-surface-variant)',
+                                fontSize: '11px',
+                              }}
+                            >
+                              已选 {task.selectedFiles.length} 页
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {/* 浏览文件/文件夹按钮 */}
+                          <Md3IconButton
+                            icon="folder_supervised"
+                            tooltip="浏览本地图片/文件夹 (支持多选自动提取页码)"
+                            onClick={() => triggerTaskFilePicker(task.id)}
+                          />
+                          {/* 克隆本章节按钮 */}
+                          <Md3IconButton
+                            icon="content_copy"
+                            tooltip="克隆本项 (自动递增末尾数字)"
+                            onClick={() => handleCloneTask(task.id)}
+                          />
+                          {/* 删除本章节按钮 */}
+                          <Md3IconButton
+                            icon="delete"
+                            tooltip={batchQueue.length <= 1 ? '至少保留一个章节任务' : '删除本章节任务'}
+                            onClick={() => handleDeleteTask(task.id)}
+                            disabled={batchQueue.length <= 1}
+                            colorVar="var(--md-sys-color-error)"
                           />
                         </div>
-                        {/* 浏览文件/文件夹按钮 */}
-                        <button
-                          type="button"
-                          title="浏览本地图片/文件夹 (支持多选自动提取页码)"
-                          className="md3-focus-ring"
-                          onClick={() => triggerTaskFilePicker(task.id)}
-                          style={{
-                            border: 'none',
-                            backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                            color: 'var(--md-sys-color-primary)',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                          }}
-                        >
-                          <Md3Icon name="folder_supervised" size={18} />
-                        </button>
-                        {/* 克隆按钮 */}
-                        <button
-                          type="button"
-                          title="克隆本项 (自动递增目录末尾数字)"
-                          className="md3-focus-ring"
-                          onClick={() => handleCloneTask(task.id)}
-                          style={{
-                            border: 'none',
-                            backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                            color: 'var(--md-sys-color-on-surface-variant)',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                          }}
-                        >
-                          <Md3Icon name="content_copy" size={18} />
-                        </button>
-                        {/* 删除按钮 */}
-                        <button
-                          type="button"
-                          title="删除本章节卡片"
-                          disabled={batchQueue.length <= 1}
-                          className="md3-focus-ring"
-                          onClick={() => handleDeleteTask(task.id)}
-                          style={{
-                            border: 'none',
-                            backgroundColor: 'transparent',
-                            color: batchQueue.length <= 1 ? 'var(--md-sys-color-outline)' : 'var(--md-sys-color-error)',
-                            padding: '8px',
-                            borderRadius: '8px',
-                            cursor: batchQueue.length <= 1 ? 'not-allowed' : 'pointer',
-                            display: 'flex',
-                          }}
-                        >
-                          <Md3Icon name="delete" size={18} />
-                        </button>
                       </div>
 
-                      {/* 第 2 行：页码过滤输入框 + 独立基准色 Chip 开关 */}
+                      {/* 第 2 行：章节目录路径 (独占整行，保证完整显示与编辑体验) */}
+                      <Md3TextField
+                        label="章节目录路径"
+                        value={task.dirPath}
+                        dense
+                        onChange={(e) => updateTask(task.id, { dirPath: e.target.value })}
+                        leadingIcon={<Md3Icon name="folder_open" size={18} />}
+                        placeholder="输入子文件夹名或完整绝对路径"
+                      />
+
+                      {/* 第 3 行：页码过滤输入框 + 独立基准色 Chip 开关 */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <div style={{ flex: 1 }}>
                           <Md3TextField
-                            label="页码过滤 (如 03-19, 01,05,08-15, 或 * 全选)"
+                            label="页码过滤"
                             value={task.pageRange}
                             dense
                             onChange={(e) => updateTask(task.id, { pageRange: e.target.value })}
                             leadingIcon={<Md3Icon name="filter_9_plus" size={18} />}
+                            placeholder="例如 03-19, 01,05 或 * 全选"
                           />
                         </div>
+
                         {/* 独立基准色开关 Chip */}
-                        <button
-                          type="button"
-                          onClick={() => updateTask(task.id, { useCustomRef: !task.useCustomRef })}
-                          className="md3-focus-ring"
-                          style={{
-                            height: '42px',
-                            paddingInline: '12px',
-                            borderRadius: 'var(--md-sys-shape-corner-full)',
-                            border: task.useCustomRef ? 'none' : '1px solid var(--md-sys-color-outline)',
-                            backgroundColor: task.useCustomRef
-                              ? 'var(--md-sys-color-secondary-container)'
-                              : 'transparent',
-                            color: task.useCustomRef
-                              ? 'var(--md-sys-color-on-secondary-container)'
-                              : 'var(--md-sys-color-on-surface-variant)',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            whiteSpace: 'nowrap',
-                          }}
+                        <Md3Tooltip
+                          title={task.useCustomRef ? '独立基准色：已开启' : '共用全局色：已开启'}
+                          text={
+                            task.useCustomRef
+                              ? '当前章节单独指定专属基准色，点击可切回共用全局色'
+                              : '当前章节共用全局色彩基准图，点击可为该章节单独指定基准色'
+                          }
                         >
-                          <Md3Icon name={task.useCustomRef ? "tune" : "palette"} size={16} fill={task.useCustomRef ? 1 : 0} />
-                          <span>{task.useCustomRef ? '独立基准色: 开' : '共用全局色'}</span>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => updateTask(task.id, { useCustomRef: !task.useCustomRef })}
+                            className="md3-focus-ring"
+                            style={{
+                              height: '42px',
+                              paddingInline: '12px',
+                              borderRadius: 'var(--md-sys-shape-corner-full)',
+                              border: task.useCustomRef
+                                ? 'none'
+                                : '1px solid var(--md-sys-color-outline-variant)',
+                              backgroundColor: task.useCustomRef
+                                ? 'var(--md-sys-color-secondary-container)'
+                                : 'var(--md-sys-color-surface-container-high)',
+                              color: task.useCustomRef
+                                ? 'var(--md-sys-color-on-secondary-container)'
+                                : 'var(--md-sys-color-on-surface-variant)',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              whiteSpace: 'nowrap',
+                              transition: 'all var(--md-sys-motion-spring-expressive-fast-effects)',
+                            }}
+                          >
+                            <Md3Icon
+                              name={task.useCustomRef ? 'tune' : 'palette'}
+                              size={16}
+                              fill={task.useCustomRef ? 1 : 0}
+                            />
+                            <span>{task.useCustomRef ? '独立基准色' : '共用全局色'}</span>
+                          </button>
+                        </Md3Tooltip>
                       </div>
 
-                      {/* 当开启独立基准色时，展开专用输入框 */}
+                      {/* 当开启独立基准色时展开专用输入框 */}
                       {task.useCustomRef && (
-                        <div style={{ paddingLeft: '8px', borderLeft: '2px solid var(--md-sys-color-primary)' }}>
+                        <div
+                          style={{
+                            paddingLeft: '10px',
+                            borderLeft: '3px solid var(--md-sys-color-primary)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                          }}
+                        >
                           <Md3TextField
                             label="本章专用色彩基准图"
                             value={task.customRefPath}
                             dense
                             onChange={(e) => updateTask(task.id, { customRefPath: e.target.value })}
                             leadingIcon={<Md3Icon name="palette" size={18} />}
+                            placeholder="输入或选择本章专属基准图路径"
                             trailingAction={
                               <button
                                 type="button"
@@ -2003,13 +2254,20 @@ export default function App() {
                                 }}
                                 style={{
                                   border: 'none',
-                                  background: 'none',
-                                  cursor: 'pointer',
+                                  background: 'var(--md-sys-color-surface-container-high)',
                                   color: 'var(--md-sys-color-primary)',
-                                  display: 'flex',
+                                  padding: '4px 8px',
+                                  borderRadius: 'var(--md-sys-shape-corner-full)',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
                                 }}
                               >
-                                <Md3Icon name="image_search" size={18} />
+                                <Md3Icon name="image_search" size={16} />
+                                <span>浏览</span>
                               </button>
                             }
                           />
@@ -2018,8 +2276,14 @@ export default function App() {
 
                       {/* 展示从本地混选器中提取的图片胶囊标签 */}
                       {task.selectedFiles && task.selectedFiles.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--md-sys-color-on-surface-variant)', alignSelf: 'center' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '2px' }}>
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              color: 'var(--md-sys-color-on-surface-variant)',
+                              alignSelf: 'center',
+                            }}
+                          >
                             已选图片 ({task.selectedFiles.length}):
                           </span>
                           {task.selectedFiles.slice(0, 10).map((fn, fIdx) => (
@@ -2036,9 +2300,11 @@ export default function App() {
                                 fontSize: '11px',
                               }}
                             >
+                              <Md3Icon name="image" size={12} />
                               <span>{fn}</span>
                               <button
                                 type="button"
+                                title={`移除 ${fn}`}
                                 onClick={() => removeFileFromTask(task.id, fn)}
                                 style={{
                                   border: 'none',
@@ -2054,7 +2320,13 @@ export default function App() {
                             </span>
                           ))}
                           {task.selectedFiles.length > 10 && (
-                            <span style={{ fontSize: '11px', color: 'var(--md-sys-color-on-surface-variant)', alignSelf: 'center' }}>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--md-sys-color-on-surface-variant)',
+                                alignSelf: 'center',
+                              }}
+                            >
                               +{task.selectedFiles.length - 10} 页...
                             </span>
                           )}
@@ -2071,7 +2343,7 @@ export default function App() {
                       onClick={handleAddFolderTask}
                       leadingIcon={<Md3Icon name="create_new_folder" size={18} />}
                     >
-                      + 添加章节文件夹
+                      添加章节文件夹
                     </Md3Button>
                     <Md3Button
                       variant="outlined"
@@ -2079,7 +2351,7 @@ export default function App() {
                       onClick={handleAddFilesTask}
                       leadingIcon={<Md3Icon name="add_photo_alternate" size={18} />}
                     >
-                      + 添加跨目录选页
+                      添加跨目录选页
                     </Md3Button>
                   </div>
                 </div>
@@ -2088,10 +2360,11 @@ export default function App() {
 
             {/* 全局色彩基准图 */}
             <Md3TextField
-              label="全局色彩基准图 (Default Color Palette Reference)"
+              label="全局色彩基准图"
               value={referencePath}
               onChange={(e) => setReferencePath(e.target.value)}
               leadingIcon={<Md3Icon name="palette" size={20} />}
+              placeholder="输入或选择全局色彩基准图路径"
               supportingText="未指定独立基准色的章节将自动采用此基准图"
               trailingAction={
                 <button

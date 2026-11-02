@@ -526,6 +526,18 @@ body {
   }
 }
 
+/* MD3 Plain / Rich Tooltip 弹簧浮现动画 */
+@keyframes md3-tooltip-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.92) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1) translateY(0);
+  }
+}
+
 @keyframes md3-scrim-fade {
   from {
     opacity: 0;
