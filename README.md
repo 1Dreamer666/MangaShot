@@ -21,7 +21,14 @@ Standard colorization of pre-typeset pages often causes diffusion models to blur
 3. **Diffusion Colorization**: Send the clean, text-free B&W page to ComfyUI FLUX.2 for reference-guided colorization and guided-filter luminance compositing.
 4. **Sharp Vector Re-Typesetting**: Overlay the verified Chinese translation directly on top of the newly colorized image with anti-aliasing contrast strokes. **Font outlines remain 100% vector-sharp with zero diffusion artifacts!**
 
-### 3. Positional JSON Protocol & Whole-Chapter Coherence
+### 3. Colorization Modes: Composite vs Direct
+MangaShot provides two colorization modes configurable via `--color-mode`:
+- **`composite` (Default & Highly Recommended)**:
+  Inherits and enhances MangaColour's core postprocessing. Preserves the full-resolution 2000px line art as the LAB luminance ($L$) channel, guided-filtering the predicted $a/b$ chroma from FLUX.2, and applying `white_threshold=245.0` to whiten speech bubbles and clean pure paper. Eliminates diffusion blurring, hallucinated text, and color stains inside bubbles.
+- **`direct` (Vivid Color Mode / 浓烈色彩模式)**:
+  Directly upscales the raw FLUX.2 color output without luminance composite. Produces rich, painterly diffusion textures suitable for stylized, painterly aesthetics.
+
+### 4. Positional JSON Protocol & Whole-Chapter Coherence
 - Every dialogue item is tracked with explicit spatial metadata: `{"id": 1, "page": "002.jpg", "box": [x1, y1, x2, y2], "text": "..."}`.
 - When processing batches or whole manga books, dialogue streams are submitted with global chapter context, ensuring recurring characters, pronouns, and conversational flow stay consistent from page to page.
 - Returned JSON is strictly validated and re-anchored to ground-truth coordinates, preventing text displacement.

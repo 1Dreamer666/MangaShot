@@ -51,7 +51,7 @@ class MangaColorizer:
             "postprocess": {
                 "radius": 2,
                 "sat": 1.0,
-                "white_threshold": 256.0,
+                "white_threshold": 245.0,
                 "neutral_mask": False,
             },
         }
@@ -77,16 +77,19 @@ class MangaColorizer:
         page_bgr: np.ndarray,
         reference_path_or_bgr: Union[str, Path, np.ndarray],
         prefix: str = "mangashot",
+        color_mode: str = "composite",
         fallback_on_offline: bool = True,
     ) -> np.ndarray:
         """
         Colorize a manga page image using reference-guided FLUX.2 in ComfyUI.
-        Falls back to reference-guided LAB Chroma Transfer if ComfyUI is offline.
+        color_mode:
+          - 'composite' (default): MangaColour L-chroma composite, sharp line art and pure white bubbles.
+          - 'direct': 浓烈色彩模式: raw diffusion color layer directly upscaled, vivid but softer lines.
         """
         if not self.check_connection():
             if fallback_on_offline and reference_path_or_bgr is not None:
                 print(f"[Notice] ComfyUI server is offline at '{self.base_url}'. Using reference-guided LAB Chroma transfer.")
-                return self.colorize_transfer(page_bgr, reference_path_or_bgr)
+                return self.colorize_transfer(page_bgr, reference_path_or_bgr, color_mode=color_mode)
             raise ComfyColorizeError(
                 f"Cannot connect to ComfyUI at '{self.base_url}'. "
                 "Ensure ComfyUI is running with --extra-model-paths-config config/extra_model_paths.yaml"
@@ -120,13 +123,20 @@ class MangaColorizer:
 
         raw_color_bgr = self._poll_and_download(prompt_id, timeout=self.cfg.get("timeout", 3600))
 
+        h, w = page_bgr.shape[:2]
+        if color_mode == "direct":
+            # 浓烈色彩模式：直接放大原始扩散产物，色彩浓郁饱和
+            return cv2.resize(raw_color_bgr, (w, h), interpolation=cv2.INTER_CUBIC)
+
+        # 默认叠加复合模式 (MangaColour Composite):
+        # 将原始高分辨率线稿保留为 L，将预测的 a/b 色度进行导向滤波复合，并漂白纯白对白气泡
         post_cfg = self.cfg.get("postprocess", {})
         final_colorized = composite_chroma(
             original_bgr=page_bgr,
             color_bgr=raw_color_bgr,
             radius=post_cfg.get("radius", 2),
             sat=post_cfg.get("sat", 1.0),
-            white_threshold=post_cfg.get("white_threshold", 256.0),
+            white_threshold=post_cfg.get("white_threshold", 245.0),
             neutral_mask=post_cfg.get("neutral_mask", False),
         )
         return final_colorized
@@ -135,6 +145,7 @@ class MangaColorizer:
         self,
         page_bgr: np.ndarray,
         reference_path_or_bgr: Union[str, Path, np.ndarray],
+        color_mode: str = "composite",
     ) -> np.ndarray:
         """Reference-guided LAB Chroma Transfer with Guided Filter L preservation."""
         if isinstance(reference_path_or_bgr, (str, Path)):
@@ -143,26 +154,47 @@ class MangaColorizer:
             ref = reference_path_or_bgr
 
         h, w = page_bgr.shape[:2]
-        ref_resized = cv2.resize(ref, (w, h), interpolation=cv2.INTER_AREA)
-
         t_lab = cv2.cvtColor(page_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
-        r_lab = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2LAB).astype(np.float32)
-
         l_t = t_lab[:, :, 0]
-        a_r = r_lab[:, :, 1] - 128.0
-        b_r = r_lab[:, :, 2] - 128.0
 
-        # Apply guided filter for smooth chroma bleeding along line boundaries
+        if color_mode == "direct":
+            ref_resized = cv2.resize(ref, (w, h), interpolation=cv2.INTER_AREA)
+            r_lab = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2LAB).astype(np.float32)
+            out_lab = np.dstack([l_t, r_lab[:, :, 1], r_lab[:, :, 2]]).clip(0, 255).astype(np.uint8)
+            return cv2.cvtColor(out_lab, cv2.COLOR_LAB2BGR)
+
+        # 智能色谱映射复合模式：提取参考图肤色与冷暖氛围
+        ref_lab = cv2.cvtColor(ref, cv2.COLOR_BGR2LAB).astype(np.float32)
+        skin_mask = (ref_lab[:, :, 0] > 120) & (ref_lab[:, :, 0] < 235) & (ref_lab[:, :, 1] > 132) & (ref_lab[:, :, 2] > 128)
+        mean_skin_a = float(np.median(ref_lab[:, :, 1][skin_mask])) if np.any(skin_mask) else 144.0
+        mean_skin_b = float(np.median(ref_lab[:, :, 2][skin_mask])) if np.any(skin_mask) else 139.0
+
+        a_out = np.full((h, w), 128.0, dtype=np.float32)
+        b_out = np.full((h, w), 128.0, dtype=np.float32)
+
+        t = np.clip((l_t - 95.0) / 140.0, 0.0, 1.0)
+        sin_weight = np.maximum(0.0, np.sin(t * np.pi))
+
+        a_out += (mean_skin_a - 128.0) * sin_weight * 1.25
+        b_out += (mean_skin_b - 128.0) * sin_weight * 1.15
+
+        hair_mask = l_t < 70.0
+        t_hair = np.clip((70.0 - l_t) / 70.0, 0.0, 1.0)
+        a_out[hair_mask] += 2.0 * t_hair[hair_mask]
+        b_out[hair_mask] -= 3.0 * t_hair[hair_mask]
+
         guide = l_t / 255.0
-        a_r = guided_filter(guide, a_r, radius=4, eps=1e-3)
-        b_r = guided_filter(guide, b_r, radius=4, eps=1e-3)
+        a_out = guided_filter(guide, a_out, radius=3, eps=1e-3)
+        b_out = guided_filter(guide, b_out, radius=3, eps=1e-3)
 
-        # Keep pure white speech bubble / paper clear
-        paper_mask = l_t > 235
-        a_r[paper_mask] = 0.0
-        b_r[paper_mask] = 0.0
+        white_mask = l_t >= 238.0
+        a_out[white_mask] = 128.0
+        b_out[white_mask] = 128.0
 
-        out_lab = np.dstack([l_t, a_r + 128.0, b_r + 128.0]).clip(0, 255).astype(np.uint8)
+        a_out = np.nan_to_num(a_out, nan=128.0).clip(0.0, 255.0)
+        b_out = np.nan_to_num(b_out, nan=128.0).clip(0.0, 255.0)
+
+        out_lab = np.dstack([l_t, a_out, b_out]).clip(0, 255).astype(np.uint8)
         return cv2.cvtColor(out_lab, cv2.COLOR_LAB2BGR)
 
     def _build_prompt_graph(self, page_name: str, ref_name: str, prefix: str) -> Dict[str, Any]:

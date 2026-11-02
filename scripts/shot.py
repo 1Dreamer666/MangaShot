@@ -88,6 +88,12 @@ def main():
         help="Range of pages to process by number, e.g. 03-19 or 3-19"
     )
     parser.add_argument(
+        "--color-mode",
+        choices=["composite", "direct"],
+        default="composite",
+        help="Colorization mode: 'composite' (default: MangaColour L-chroma composite, sharp line art and pure white bubbles) or 'direct' (浓烈色彩模式: raw diffusion output, vivid but softer lines)"
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Force re-processing of already completed pages"
@@ -146,6 +152,7 @@ def main():
             mode=args.mode,
             qa_path=qa_file,
             json_path=json_file,
+            color_mode=args.color_mode,
         )
     else:
         pipeline.process_batch(
@@ -156,6 +163,7 @@ def main():
             glob_pattern=args.glob,
             force=args.force,
             page_range=args.page_range,
+            color_mode=args.color_mode,
         )
 
         if args.contact_sheet:

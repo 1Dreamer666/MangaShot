@@ -232,6 +232,7 @@ class MangaShotPipeline:
         qa_path: Optional[Union[str, Path]] = None,
         json_path: Optional[Union[str, Path]] = None,
         pre_translated_items: Optional[List[Dict[str, Any]]] = None,
+        color_mode: str = "composite",
     ) -> Dict[str, Any]:
         """Process a single manga page with positional JSON integrity."""
         img_path = Path(img_path)
@@ -300,7 +301,7 @@ class MangaShotPipeline:
                     )
 
         elif exec_action == "colorize":
-            final_img = self.colorizer.colorize(img, reference_path_or_bgr=ref_file)
+            final_img = self.colorizer.colorize(img, reference_path_or_bgr=ref_file, color_mode=color_mode)
 
         elif exec_action == "advanced":
             # 1. Inpaint text on B&W line art
@@ -315,7 +316,7 @@ class MangaShotPipeline:
 
             # 2. Colorize text-free B&W image
             try:
-                colorized_text_free = self.colorizer.colorize(target_to_colorize, reference_path_or_bgr=ref_file)
+                colorized_text_free = self.colorizer.colorize(target_to_colorize, reference_path_or_bgr=ref_file, color_mode=color_mode)
             except ComfyColorizeError as e:
                 print(f"[Warning] ComfyUI colorization unavailable ({e}). Retaining clean B&W.")
                 colorized_text_free = target_to_colorize
@@ -390,6 +391,7 @@ class MangaShotPipeline:
         glob_pattern: str = "*.jpg",
         force: bool = False,
         page_range: Optional[str] = None,
+        color_mode: str = "composite",
     ) -> List[Dict[str, Any]]:
         """
         Whole-Chapter / Batch Coordinator for MangaShot:
@@ -407,21 +409,28 @@ class MangaShotPipeline:
         if not pages:
             pages = sorted([p for p in in_p.glob("*.*") if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}])
 
-        # Filter by page_range (e.g. "03-19" or "3-19")
-        if page_range and "-" in page_range:
+        # Filter by page_range (supports "03-19", discrete "01, 05, 08-15", or "*")
+        if page_range and page_range.strip() != "*":
             try:
-                s_str, e_str = page_range.split("-")
-                r_start, r_end = int(s_str), int(e_str)
-                filtered = []
-                for p in pages:
-                    nums = re.findall(r"\d+", p.stem)
-                    if nums:
-                        val = int(nums[-1])
-                        if r_start <= val <= r_end:
+                allowed_nums = set()
+                for token in re.split(r"[,，\s]+", page_range.strip()):
+                    if not token:
+                        continue
+                    if "-" in token:
+                        s_str, e_str = token.split("-")
+                        for n in range(int(s_str), int(e_str) + 1):
+                            allowed_nums.add(n)
+                    else:
+                        allowed_nums.add(int(token))
+                if allowed_nums:
+                    filtered = []
+                    for p in pages:
+                        nums = re.findall(r"\d+", p.stem)
+                        if nums and int(nums[-1]) in allowed_nums:
                             filtered.append(p)
-                if filtered:
-                    pages = filtered
-                    print(f"Filtered pages by range [{page_range}]: {len(pages)} pages matched.")
+                    if filtered:
+                        pages = filtered
+                        print(f"Filtered pages by pattern [{page_range}]: {len(pages)} pages matched.")
             except Exception as e:
                 print(f"[Warning] Failed to parse page_range '{page_range}': {e}")
 
@@ -486,6 +495,7 @@ class MangaShotPipeline:
                     qa_path=qa_file,
                     json_path=json_file,
                     pre_translated_items=pre_items,
+                    color_mode=color_mode,
                 )
                 res["status"] = "success"
                 summary.append(res)

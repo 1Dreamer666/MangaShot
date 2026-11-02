@@ -25,6 +25,17 @@ interface ProcessResult {
   items?: DialogueItem[];
 }
 
+/** 跨目录多章节任务队列卡片项定义 */
+interface BatchTaskItem {
+  id: string;
+  name: string;
+  dirPath: string;
+  pageRange: string;
+  useCustomRef: boolean;
+  customRefPath: string;
+  selectedFiles?: string[];
+}
+
 /* ============================================================================
  * 2. MD3 动态色彩主题预设矩阵 (HCT Perceptual Tonal Palettes)
  * 支持 5 组高表现力源色 × 明暗双主题 × 对比度增强
@@ -863,6 +874,7 @@ interface Md3TextFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   label: string;
   supportingText?: string;
   leadingIcon?: React.ReactNode;
+  trailingAction?: React.ReactNode;
   dense?: boolean;
 }
 
@@ -870,6 +882,7 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
   label,
   supportingText,
   leadingIcon,
+  trailingAction,
   dense = false,
   value,
   onChange,
@@ -1014,6 +1027,12 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
             {...rest}
           />
         </div>
+
+        {trailingAction && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, zIndex: 2 }}>
+            {trailingAction}
+          </div>
+        )}
       </div>
       {supportingText && (
         <span
@@ -1034,22 +1053,40 @@ const Md3TextField: React.FC<Md3TextFieldProps> = ({
  * 5. 主应用组件 App (100% 保持原有状态与接口逻辑)
  * ========================================================================== */
 export default function App() {
-  /* ---------------- 原有业务状态 (100% 保留) ---------------- */
+  /* ---------------- 原有业务状态 (100% 保留与扩展) ---------------- */
   const [isBatch, setIsBatch] = useState<boolean>(false);
   const [mode, setMode] = useState<string>('advanced');
+  const [colorMode, setColorMode] = useState<'composite' | 'direct'>('composite');
   const [inputPath, setInputPath] = useState<string>(
     'examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）/MOMOUMIX_003.jpg'
   );
-  const [batchDir, setBatchDir] = useState<string>(
-    'examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）'
-  );
-  const [pageRange, setPageRange] = useState<string>('03-19');
+  const [baseDir, setBaseDir] = useState<string>('');
   const [referencePath, setReferencePath] = useState<string>(
-    'examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）/MOMOUMIX_022.jpg'
+    'examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）/MOMOUMIX_001.jpg'
   );
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<string>('就绪');
   const [activeTab, setActiveTab] = useState<'compare' | 'final' | 'table'>('compare');
+
+  /* 多章节任务队列卡片状态 (Multi-Folder Batch Queue) */
+  const [batchQueue, setBatchQueue] = useState<BatchTaskItem[]>([
+    {
+      id: 'task-1',
+      name: '第 01 话',
+      dirPath: 'examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）',
+      pageRange: '03-19',
+      useCustomRef: false,
+      customRefPath: '',
+      selectedFiles: [],
+    },
+  ]);
+
+  /* 隐藏式原生文件选择器 Ref */
+  const singleFilePickerRef = useRef<HTMLInputElement | null>(null);
+  const globalRefPickerRef = useRef<HTMLInputElement | null>(null);
+  const customRefPickerRef = useRef<HTMLInputElement | null>(null);
+  const taskFolderPickerRef = useRef<HTMLInputElement | null>(null);
+  const activePickerTaskIdRef = useRef<string | null>(null);
 
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [dialogueItems, setDialogueItems] = useState<DialogueItem[]>([]);
@@ -1093,38 +1130,233 @@ export default function App() {
   const loadMomoumixPreset = () => {
     setIsBatch(true);
     setMode('advanced');
-    setBatchDir('examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）');
-    setPageRange('03-19');
-    setReferencePath('examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）/MOMOUMIX_022.jpg');
-    setStatusMsg('已载入 MOMOUMIX 03-19 话册测试预设 (基准色: MOMOUMIX_022.jpg)');
+    setColorMode('composite');
+    setBatchQueue([
+      {
+        id: 'task-1',
+        name: '第 01 话',
+        dirPath: 'examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）',
+        pageRange: '03-19',
+        useCustomRef: false,
+        customRefPath: '',
+        selectedFiles: [],
+      },
+    ]);
+    setReferencePath('examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）/MOMOUMIX_001.jpg');
+    setStatusMsg('已载入 MOMOUMIX 03-19 测试预设 (色彩基准: 封面 MOMOUMIX_001.jpg)');
+  };
+
+  /* 队列卡片增删改克隆操作 */
+  const updateTask = (taskId: string, partial: Partial<BatchTaskItem>) => {
+    setBatchQueue((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, ...partial } : t))
+    );
+  };
+
+  const handleCloneTask = (taskId: string) => {
+    const target = batchQueue.find((t) => t.id === taskId);
+    if (!target) return;
+    const nextIdx = batchQueue.length + 1;
+    let nextDir = target.dirPath;
+    const matchNum = nextDir.match(/(\d+)(?!.*\d)/);
+    if (matchNum) {
+      const origNum = matchNum[1];
+      const incNum = String(parseInt(origNum, 10) + 1).padStart(origNum.length, '0');
+      nextDir =
+        nextDir.slice(0, matchNum.index!) + incNum + nextDir.slice(matchNum.index! + origNum.length);
+    }
+    const newTask: BatchTaskItem = {
+      ...target,
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: `第 ${String(nextIdx).padStart(2, '0')} 话`,
+      dirPath: nextDir,
+    };
+    setBatchQueue((prev) => [...prev, newTask]);
+    setStatusMsg(`已克隆任务 -> ${newTask.name} (${newTask.dirPath})`);
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    if (batchQueue.length <= 1) {
+      setStatusMsg('至少保留一个章节任务');
+      return;
+    }
+    setBatchQueue((prev) => prev.filter((t) => t.id !== taskId));
+  };
+
+  const handleAddFolderTask = () => {
+    const nextIdx = batchQueue.length + 1;
+    const newTask: BatchTaskItem = {
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: `第 ${String(nextIdx).padStart(2, '0')} 话`,
+      dirPath: '',
+      pageRange: '*',
+      useCustomRef: false,
+      customRefPath: '',
+      selectedFiles: [],
+    };
+    setBatchQueue((prev) => [...prev, newTask]);
+  };
+
+  const handleAddFilesTask = () => {
+    const nextIdx = batchQueue.length + 1;
+    const newTask: BatchTaskItem = {
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: `跨目录选页 #${nextIdx}`,
+      dirPath: '',
+      pageRange: '',
+      useCustomRef: false,
+      customRefPath: '',
+      selectedFiles: [],
+    };
+    setBatchQueue((prev) => [...prev, newTask]);
+  };
+
+  const triggerTaskFilePicker = (taskId: string) => {
+    activePickerTaskIdRef.current = taskId;
+    if (taskFolderPickerRef.current) {
+      taskFolderPickerRef.current.value = '';
+      taskFolderPickerRef.current.click();
+    }
+  };
+
+  const handleTaskFilesPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    const taskId = activePickerTaskIdRef.current;
+    if (!files || files.length === 0 || !taskId) return;
+
+    const fileList = Array.from(files);
+    let inferredDir = '';
+    const firstRel = (fileList[0] as any).webkitRelativePath as string | undefined;
+    if (firstRel && firstRel.includes('/')) {
+      inferredDir = firstRel.substring(0, firstRel.lastIndexOf('/'));
+    }
+
+    const numbers: number[] = [];
+    const fileNames: string[] = [];
+    for (const f of fileList) {
+      fileNames.push(f.name);
+      const m = f.name.match(/\d+/g);
+      if (m) {
+        numbers.push(parseInt(m[m.length - 1], 10));
+      }
+    }
+    numbers.sort((a, b) => a - b);
+
+    let rangeStr = '';
+    if (numbers.length > 0) {
+      const minNum = numbers[0];
+      const maxNum = numbers[numbers.length - 1];
+      if (numbers.length >= 2 && maxNum - minNum === numbers.length - 1) {
+        rangeStr = `${String(minNum).padStart(2, '0')}-${String(maxNum).padStart(2, '0')}`;
+      } else {
+        rangeStr = numbers.map((n) => String(n).padStart(2, '0')).join(', ');
+      }
+    }
+
+    setBatchQueue((prev) =>
+      prev.map((t) => {
+        if (t.id === taskId) {
+          return {
+            ...t,
+            dirPath: inferredDir || t.dirPath || fileList[0].name,
+            pageRange: rangeStr || t.pageRange,
+            selectedFiles: fileNames,
+          };
+        }
+        return t;
+      })
+    );
+    setStatusMsg(`已解析 ${fileList.length} 张图片，页码范围: ${rangeStr || '自适应'}`);
+  };
+
+  const removeFileFromTask = (taskId: string, fileName: string) => {
+    setBatchQueue((prev) =>
+      prev.map((t) => {
+        if (t.id === taskId && t.selectedFiles) {
+          const nextFiles = t.selectedFiles.filter((f) => f !== fileName);
+          return { ...t, selectedFiles: nextFiles };
+        }
+        return t;
+      })
+    );
+  };
+
+  const handleSingleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
+      setInputPath(f.name);
+      setStatusMsg(`已选择单页: ${f.name}`);
+    }
+  };
+
+  const handleGlobalRefPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
+      setReferencePath(f.name);
+      setStatusMsg(`已选择基准图: ${f.name}`);
+    }
+  };
+
+  const handleCustomRefPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    const taskId = activePickerTaskIdRef.current;
+    if (f && taskId) {
+      updateTask(taskId, { customRefPath: f.name });
+      setStatusMsg(`已设置章节独立基准图: ${f.name}`);
+    }
   };
 
   const handleRun = async () => {
     setIsProcessing(true);
-    setStatusMsg(`正在以 [${mode}] 模式启动流水线...`);
+    setStatusMsg(
+      `正在以 [${mode}] 流水线与 [${colorMode === 'composite' ? '叠加复合' : '浓烈色彩'}] 模式启动...`
+    );
 
     try {
       if (isBatch) {
-        setStatusMsg(`正在执行批量任务: ${batchDir} (范围: ${pageRange})...`);
-        const resp = await fetch('/api/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            input: batchDir,
-            reference: referencePath,
-            mode: mode,
-            page_range: pageRange,
-            glob: '*.jpg',
-          }),
-        });
+        let allSummaries: any[] = [];
 
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+        for (const [idx, task] of batchQueue.entries()) {
+          const effectiveDir = baseDir
+            ? task.dirPath.startsWith('/') || task.dirPath.includes(':')
+              ? task.dirPath
+              : `${baseDir.replace(/[\\/]$/, '')}/${task.dirPath}`
+            : task.dirPath;
+
+          const effectiveRef =
+            task.useCustomRef && task.customRefPath ? task.customRefPath : referencePath;
+
+          setStatusMsg(
+            `正在执行任务队列 (${idx + 1}/${batchQueue.length}): [${task.name}] 路径: ${effectiveDir} (范围: ${task.pageRange || '全部'})...`
+          );
+
+          const resp = await fetch('/api/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              input: effectiveDir,
+              reference: effectiveRef,
+              mode: mode,
+              color_mode: colorMode,
+              page_range: task.pageRange === '*' ? undefined : task.pageRange,
+              glob: '*.jpg',
+            }),
+          });
+
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+          }
+
+          const data = await resp.json();
+          if (data.summary) {
+            allSummaries = [...allSummaries, ...data.summary];
+          }
         }
 
-        const data = await resp.json();
-        setBatchSummary(data.summary || []);
-        setStatusMsg(`批量任务完成！处理了 ${data.summary?.length || 0} 个页面。`);
+        setBatchSummary(allSummaries);
+        setStatusMsg(
+          `跨目录任务队列全部完成！共处理 ${batchQueue.length} 个章节、${allSummaries.length} 个页面。`
+        );
       } else {
         setStatusMsg(`正在处理单页: ${inputPath}...`);
         const resp = await fetch('/api/process', {
@@ -1134,6 +1366,7 @@ export default function App() {
             input: inputPath,
             reference: referencePath,
             mode: mode,
+            color_mode: colorMode,
           }),
         });
 
@@ -1513,17 +1746,53 @@ export default function App() {
             </div>
           </div>
 
-          {/* 2.2 单页 vs 整话批量模式 (M3 Expressive Connected Button Group) */}
+          {/* 2.2 上色色彩处理模式 (Color Mode) */}
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '8px',
+              }}
+            >
+              <label className="md3-title-small" style={{ color: 'var(--md-sys-color-on-surface)' }}>
+                色彩处理模式 (Color Mode)
+              </label>
+              <span className="md3-label-small" style={{ color: 'var(--md-sys-color-primary)' }}>
+                {colorMode === 'composite' ? '线稿保护开启' : '浓烈扩散模式'}
+              </span>
+            </div>
+            <Md3ConnectedButtonGroup
+              value={colorMode}
+              onChange={(val) => setColorMode(val as 'composite' | 'direct')}
+              height="40px"
+              options={[
+                {
+                  id: 'composite',
+                  label: '🌈 叠加复合 (推荐: 锐利线稿+纯白气泡)',
+                  icon: <Md3Icon name="layers" size={18} fill={colorMode === 'composite' ? 1 : 0} />,
+                },
+                {
+                  id: 'direct',
+                  label: '🔥 浓烈色彩 (直接上色: 扩散原画风)',
+                  icon: <Md3Icon name="local_fire_department" size={18} fill={colorMode === 'direct' ? 1 : 0} />,
+                },
+              ]}
+            />
+          </div>
+
+          {/* 2.3 单页 vs 多章节任务队列模式 (M3 Expressive Connected Button Group) */}
           <Md3ConnectedButtonGroup
             value={isBatch ? 'batch' : 'single'}
             onChange={(val) => setIsBatch(val === 'batch')}
             options={[
               { id: 'single', label: '单页处理模式' },
-              { id: 'batch', label: '整话批量模式' },
+              { id: 'batch', label: `多章节任务队列 (${batchQueue.length})` },
             ]}
           />
 
-          {/* 2.3 路径参数输入框 (MD3 三段式透明切口浮动标签 TextField) */}
+          {/* 2.4 路径参数输入与跨目录卡片队列 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {!isBatch ? (
               <Md3TextField
@@ -1531,34 +1800,327 @@ export default function App() {
                 value={inputPath}
                 onChange={(e) => setInputPath(e.target.value)}
                 leadingIcon={<Md3Icon name="description" size={20} />}
+                trailingAction={
+                  <button
+                    type="button"
+                    title="浏览选择本地单页图片"
+                    className="md3-focus-ring"
+                    onClick={() => singleFilePickerRef.current?.click()}
+                    style={{
+                      border: 'none',
+                      background: 'var(--md-sys-color-surface-container-high)',
+                      color: 'var(--md-sys-color-primary)',
+                      borderRadius: 'var(--md-sys-shape-corner-full)',
+                      padding: '5px 10px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Md3Icon name="upload_file" size={16} />
+                    <span>选择文件</span>
+                  </button>
+                }
               />
             ) : (
-              <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* 公共主目录提取 (可选) */}
                 <Md3TextField
-                  label="整话漫画目录路径 (Chapter Directory)"
-                  value={batchDir}
-                  onChange={(e) => setBatchDir(e.target.value)}
-                  leadingIcon={<Md3Icon name="folder_open" size={20} />}
+                  label="公共漫画主目录 (Base Directory - 可选)"
+                  value={baseDir}
+                  onChange={(e) => setBaseDir(e.target.value)}
+                  leadingIcon={<Md3Icon name="home_storage" size={20} />}
+                  placeholder="例如 examples/ (若下方已填完整路径可留空)"
+                  supportingText="提取公共前缀，下方章节卡片仅需填写子文件夹名"
                 />
-                <Md3TextField
-                  label="页码区间过滤 (Page Range, 如 03-19)"
-                  value={pageRange}
-                  onChange={(e) => setPageRange(e.target.value)}
-                  placeholder="03-19"
-                  leadingIcon={<Md3Icon name="pin" size={20} />}
-                />
-              </>
+
+                {/* 多章节任务队列卡片列表 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="md3-title-small" style={{ color: 'var(--md-sys-color-on-surface)' }}>
+                      跨目录章节队列 (Batch Queue)
+                    </span>
+                    <span className="md3-body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
+                      顺序调度 {batchQueue.length} 个任务
+                    </span>
+                  </div>
+
+                  {batchQueue.map((task) => (
+                    <div
+                      key={task.id}
+                      style={{
+                        backgroundColor: 'var(--md-sys-color-surface-container)',
+                        borderRadius: 'var(--md-sys-shape-corner-large)',
+                        border: '1px solid var(--md-sys-color-outline-variant)',
+                        padding: '14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                      }}
+                    >
+                      {/* 第 1 行：章节序号徽标 + 目录路径输入框 + 浏览 / 克隆 / 删除 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 'var(--md-sys-shape-corner-small)',
+                            backgroundColor: 'var(--md-sys-color-primary-container)',
+                            color: 'var(--md-sys-color-on-primary-container)',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {task.name}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <Md3TextField
+                            label="章节目录路径"
+                            value={task.dirPath}
+                            dense
+                            onChange={(e) => updateTask(task.id, { dirPath: e.target.value })}
+                            leadingIcon={<Md3Icon name="folder_open" size={18} />}
+                          />
+                        </div>
+                        {/* 浏览文件/文件夹按钮 */}
+                        <button
+                          type="button"
+                          title="浏览本地图片/文件夹 (支持多选自动提取页码)"
+                          className="md3-focus-ring"
+                          onClick={() => triggerTaskFilePicker(task.id)}
+                          style={{
+                            border: 'none',
+                            backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                            color: 'var(--md-sys-color-primary)',
+                            padding: '8px',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                          }}
+                        >
+                          <Md3Icon name="folder_supervised" size={18} />
+                        </button>
+                        {/* 克隆按钮 */}
+                        <button
+                          type="button"
+                          title="克隆本项 (自动递增目录末尾数字)"
+                          className="md3-focus-ring"
+                          onClick={() => handleCloneTask(task.id)}
+                          style={{
+                            border: 'none',
+                            backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                            padding: '8px',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                          }}
+                        >
+                          <Md3Icon name="content_copy" size={18} />
+                        </button>
+                        {/* 删除按钮 */}
+                        <button
+                          type="button"
+                          title="删除本章节卡片"
+                          disabled={batchQueue.length <= 1}
+                          className="md3-focus-ring"
+                          onClick={() => handleDeleteTask(task.id)}
+                          style={{
+                            border: 'none',
+                            backgroundColor: 'transparent',
+                            color: batchQueue.length <= 1 ? 'var(--md-sys-color-outline)' : 'var(--md-sys-color-error)',
+                            padding: '8px',
+                            borderRadius: '8px',
+                            cursor: batchQueue.length <= 1 ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                          }}
+                        >
+                          <Md3Icon name="delete" size={18} />
+                        </button>
+                      </div>
+
+                      {/* 第 2 行：页码过滤输入框 + 独立基准色 Chip 开关 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ flex: 1 }}>
+                          <Md3TextField
+                            label="页码过滤 (如 03-19, 01,05,08-15, 或 * 全选)"
+                            value={task.pageRange}
+                            dense
+                            onChange={(e) => updateTask(task.id, { pageRange: e.target.value })}
+                            leadingIcon={<Md3Icon name="filter_9_plus" size={18} />}
+                          />
+                        </div>
+                        {/* 独立基准色开关 Chip */}
+                        <button
+                          type="button"
+                          onClick={() => updateTask(task.id, { useCustomRef: !task.useCustomRef })}
+                          className="md3-focus-ring"
+                          style={{
+                            height: '42px',
+                            paddingInline: '12px',
+                            borderRadius: 'var(--md-sys-shape-corner-full)',
+                            border: task.useCustomRef ? 'none' : '1px solid var(--md-sys-color-outline)',
+                            backgroundColor: task.useCustomRef
+                              ? 'var(--md-sys-color-secondary-container)'
+                              : 'transparent',
+                            color: task.useCustomRef
+                              ? 'var(--md-sys-color-on-secondary-container)'
+                              : 'var(--md-sys-color-on-surface-variant)',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Md3Icon name={task.useCustomRef ? "tune" : "palette"} size={16} fill={task.useCustomRef ? 1 : 0} />
+                          <span>{task.useCustomRef ? '独立基准色: 开' : '共用全局色'}</span>
+                        </button>
+                      </div>
+
+                      {/* 当开启独立基准色时，展开专用输入框 */}
+                      {task.useCustomRef && (
+                        <div style={{ paddingLeft: '8px', borderLeft: '2px solid var(--md-sys-color-primary)' }}>
+                          <Md3TextField
+                            label="本章专用色彩基准图"
+                            value={task.customRefPath}
+                            dense
+                            onChange={(e) => updateTask(task.id, { customRefPath: e.target.value })}
+                            leadingIcon={<Md3Icon name="palette" size={18} />}
+                            trailingAction={
+                              <button
+                                type="button"
+                                title="选择本章独立基准图"
+                                className="md3-focus-ring"
+                                onClick={() => {
+                                  activePickerTaskIdRef.current = task.id;
+                                  customRefPickerRef.current?.click();
+                                }}
+                                style={{
+                                  border: 'none',
+                                  background: 'none',
+                                  cursor: 'pointer',
+                                  color: 'var(--md-sys-color-primary)',
+                                  display: 'flex',
+                                }}
+                              >
+                                <Md3Icon name="image_search" size={18} />
+                              </button>
+                            }
+                          />
+                        </div>
+                      )}
+
+                      {/* 展示从本地混选器中提取的图片胶囊标签 */}
+                      {task.selectedFiles && task.selectedFiles.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--md-sys-color-on-surface-variant)', alignSelf: 'center' }}>
+                            已选图片 ({task.selectedFiles.length}):
+                          </span>
+                          {task.selectedFiles.slice(0, 10).map((fn, fIdx) => (
+                            <span
+                              key={fIdx}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '2px 8px',
+                                borderRadius: '9999px',
+                                backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                                color: 'var(--md-sys-color-on-surface)',
+                                fontSize: '11px',
+                              }}
+                            >
+                              <span>{fn}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeFileFromTask(task.id, fn)}
+                                style={{
+                                  border: 'none',
+                                  background: 'none',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                  display: 'flex',
+                                  color: 'var(--md-sys-color-on-surface-variant)',
+                                }}
+                              >
+                                <Md3Icon name="close" size={12} />
+                              </button>
+                            </span>
+                          ))}
+                          {task.selectedFiles.length > 10 && (
+                            <span style={{ fontSize: '11px', color: 'var(--md-sys-color-on-surface-variant)', alignSelf: 'center' }}>
+                              +{task.selectedFiles.length - 10} 页...
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* 队列底部添加操作栏 */}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                    <Md3Button
+                      variant="tonal"
+                      size="sm"
+                      onClick={handleAddFolderTask}
+                      leadingIcon={<Md3Icon name="create_new_folder" size={18} />}
+                    >
+                      + 添加章节文件夹
+                    </Md3Button>
+                    <Md3Button
+                      variant="outlined"
+                      size="sm"
+                      onClick={handleAddFilesTask}
+                      leadingIcon={<Md3Icon name="add_photo_alternate" size={18} />}
+                    >
+                      + 添加跨目录选页
+                    </Md3Button>
+                  </div>
+                </div>
+              </div>
             )}
 
+            {/* 全局色彩基准图 */}
             <Md3TextField
-              label="色彩基准图 (Color Palette Reference)"
+              label="全局色彩基准图 (Default Color Palette Reference)"
               value={referencePath}
               onChange={(e) => setReferencePath(e.target.value)}
               leadingIcon={<Md3Icon name="palette" size={20} />}
+              supportingText="未指定独立基准色的章节将自动采用此基准图"
+              trailingAction={
+                <button
+                  type="button"
+                  title="浏览选择色彩基准图片"
+                  className="md3-focus-ring"
+                  onClick={() => globalRefPickerRef.current?.click()}
+                  style={{
+                    border: 'none',
+                    background: 'var(--md-sys-color-surface-container-high)',
+                    color: 'var(--md-sys-color-primary)',
+                    borderRadius: 'var(--md-sys-shape-corner-full)',
+                    padding: '5px 10px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                  }}
+                >
+                  <Md3Icon name="image_search" size={16} />
+                  <span>选择基准图</span>
+                </button>
+              }
             />
           </div>
 
-          {/* 2.4 启动流水线大号主操作按钮 (Large 56dp Expressive Button + 7形态变形加载器) */}
+          {/* 2.5 启动流水线大号主操作按钮 (Large 56dp Expressive Button + 7形态变形加载器) */}
           <Md3Button
             variant="filled"
             size="lg"
@@ -1574,9 +2136,9 @@ export default function App() {
             }
           >
             {isProcessing
-              ? '正在处理中...'
+              ? '正在处理跨目录流水线...'
               : isBatch
-                ? '开始执行整话批量处理'
+                ? `开始执行跨目录批量处理 (共 ${batchQueue.length} 个任务)`
                 : '开始执行单页流水线'}
           </Md3Button>
 
@@ -2011,6 +2573,37 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 隐藏式原生文件/文件夹选择器 */}
+      <input
+        type="file"
+        ref={singleFilePickerRef}
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleSingleFilePicked}
+      />
+      <input
+        type="file"
+        ref={globalRefPickerRef}
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleGlobalRefPicked}
+      />
+      <input
+        type="file"
+        ref={customRefPickerRef}
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleCustomRefPicked}
+      />
+      <input
+        type="file"
+        ref={taskFolderPickerRef}
+        multiple
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleTaskFilesPicked}
+      />
     </div>
   );
 }

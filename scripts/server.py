@@ -91,6 +91,7 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
             ref_path = repo_root / ref_path
 
         mode = req.get("mode", "auto")
+        color_mode = req.get("color_mode", "composite")
         out_dir = repo_root / "outputs" / "gui_run"
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -106,6 +107,7 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
                 mode=mode,
                 qa_path=qa_file,
                 json_path=json_file,
+                color_mode=color_mode,
             )
 
             # Load generated JSON items
@@ -144,6 +146,7 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
             ref_path = repo_root / ref_path
 
         mode = req.get("mode", "auto")
+        color_mode = req.get("color_mode", "composite")
         page_range = req.get("page_range")
         glob_pattern = req.get("glob", "*.jpg")
         out_dir = repo_root / "outputs" / "gui_batch"
@@ -156,6 +159,7 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
                 mode=mode,
                 glob_pattern=glob_pattern,
                 page_range=page_range,
+                color_mode=color_mode,
             )
             self.send_json({"status": "success", "summary": summary})
         except (ConnectionResetError, BrokenPipeError):

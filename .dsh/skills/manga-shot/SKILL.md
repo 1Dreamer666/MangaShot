@@ -104,6 +104,7 @@ MangaShot 提供了现代化的 TypeScript Web GUI：
 ## 6. 中文速查摘要
 
 - **自检**：`python scripts/check_setup.py`
-- **进阶汉化上色单页**：`python scripts/shot.py -i <图片> -o <输出> -m advanced -r <参考图>`
-- **整话批量连贯处理**：`python scripts/shot.py -i <文件夹> -o <输出> -m auto -r <参考图> --contact-sheet`
+- **进阶汉化上色单页（默认叠加复合模式）**：`python scripts/shot.py -i <图片> -o <输出> -m advanced -r <参考图> --color-mode composite`
+- **浓烈色彩模式单页**：`python scripts/shot.py -i <图片> -o <输出> -m advanced -r <参考图> --color-mode direct`
+- **整话批量连贯处理**：`python scripts/shot.py -i <文件夹> -o <输出> -m auto -r <参考图> --color-mode composite --contact-sheet`
 - **Web 界面**：`python scripts/server.py`（访问 `http://127.0.0.1:7860`）
