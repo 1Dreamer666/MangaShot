@@ -125,8 +125,10 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
                 "items": items,
             }
             self.send_json(response_data)
+        except (ConnectionResetError, BrokenPipeError):
+            pass
         except Exception as e:
-            self.send_error(500, f"Processing error: {e}")
+            self.send_error_json(500, f"Processing error: {e}")
 
     def handle_batch(self):
         content_len = int(self.headers.get("Content-Length", 0))
@@ -156,12 +158,14 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
                 page_range=page_range,
             )
             self.send_json({"status": "success", "summary": summary})
+        except (ConnectionResetError, BrokenPipeError):
+            pass
         except Exception as e:
-            self.send_error(500, f"Batch processing error: {e}")
+            self.send_error_json(500, f"Batch processing error: {e}")
 
     def serve_file(self, file_path: Path):
         if not file_path.is_file():
-            self.send_error(404, f"File '{file_path.name}' not found")
+            self.send_error_json(404, f"File '{file_path.name}' not found")
             return
 
         ext = file_path.suffix.lower()
@@ -191,14 +195,29 @@ class MangaShotHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, f"Error serving file: {e}")
 
+    def send_error_json(self, code: int, message: str):
+        try:
+            body = json.dumps({"status": "error", "message": str(message)}, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            pass
+
     def send_json(self, data: dict):
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ConnectionResetError, BrokenPipeError):
+            pass
 
     def log_message(self, format, *args):
         # Clean logging

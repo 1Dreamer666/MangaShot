@@ -1,144 +1,559 @@
+/* ============================================================================
+ * MangaShot Studio - Material Design 3 & M3 Expressive Master Stylesheet
+ * 严格遵循三层令牌本体论: Reference (--md-ref-*) -> System (--md-sys-*) -> Component (--md-comp-*)
+ * ========================================================================== */
+
 :root {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-card: #1e293b;
-  --border-color: #334155;
-  --accent: #38bdf8;
-  --accent-hover: #0284c7;
-  --accent-glow: rgba(56, 189, 248, 0.25);
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  /* --------------------------------------------------------------------------
+   * 1. Reference Tokens (引用层原子令牌)
+   * ------------------------------------------------------------------------ */
+  --md-ref-typeface-brand: 'Plus Jakarta Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --md-ref-typeface-plain: 'Plus Jakarta Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --md-ref-typeface-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* --------------------------------------------------------------------------
+   * 2. System Shape Corner Tokens (10 级几何圆角系统令牌)
+   * ------------------------------------------------------------------------ */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-large-increased: 20px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-extra-large-increased: 32px;
+  --md-sys-shape-corner-extra-extra-large: 48px;
+  --md-sys-shape-corner-full: 9999px;
+
+  /* --------------------------------------------------------------------------
+   * 3. System Motion Physics Spring Tokens (12 级双轨物理弹簧动效令牌)
+   * Spatial 轨道允许物理超调回弹 (Overshoot); Effects 轨道严格临界阻尼无回弹
+   * ------------------------------------------------------------------------ */
+  --md-sys-motion-spring-expressive-fast-spatial: 350ms cubic-bezier(0.42, 1.67, 0.21, 0.90);
+  --md-sys-motion-spring-expressive-default-spatial: 500ms cubic-bezier(0.38, 1.21, 0.22, 1.00);
+  --md-sys-motion-spring-expressive-slow-spatial: 650ms cubic-bezier(0.39, 1.29, 0.35, 0.98);
+
+  --md-sys-motion-spring-expressive-fast-effects: 150ms cubic-bezier(0.31, 0.94, 0.34, 1.00);
+  --md-sys-motion-spring-expressive-default-effects: 200ms cubic-bezier(0.34, 0.80, 0.34, 1.00);
+  --md-sys-motion-spring-expressive-slow-effects: 300ms cubic-bezier(0.34, 0.88, 0.34, 1.00);
+
+  --md-sys-motion-spring-standard-fast-spatial: 350ms cubic-bezier(0.27, 1.06, 0.18, 1.00);
+  --md-sys-motion-spring-standard-default-spatial: 500ms cubic-bezier(0.27, 1.06, 0.18, 1.00);
+  --md-sys-motion-spring-standard-slow-spatial: 750ms cubic-bezier(0.27, 1.06, 0.18, 1.00);
+
+  --md-sys-motion-spring-standard-fast-effects: 150ms cubic-bezier(0.31, 0.94, 0.34, 1.00);
+  --md-sys-motion-spring-standard-default-effects: 200ms cubic-bezier(0.34, 0.80, 0.34, 1.00);
+  --md-sys-motion-spring-standard-slow-effects: 300ms cubic-bezier(0.34, 0.88, 0.34, 1.00);
+
+  /* --------------------------------------------------------------------------
+   * 4. System State Layer Opacity Tokens (交互状态层不透明度令牌)
+   * ------------------------------------------------------------------------ */
+  --md-sys-state-hover-opacity: 0.08;
+  --md-sys-state-focus-opacity: 0.10;
+  --md-sys-state-pressed-opacity: 0.10;
+  --md-sys-state-dragged-opacity: 0.16;
+
+  /* --------------------------------------------------------------------------
+   * 5. System Color Roles - Dark Mode Default Baseline (默认暗色主题 49+ 角色)
+   * ------------------------------------------------------------------------ */
+  --md-sys-color-primary: #A6C8FF;
+  --md-sys-color-on-primary: #00315F;
+  --md-sys-color-primary-container: #1C4876;
+  --md-sys-color-on-primary-container: #D5E3FF;
+  --md-sys-color-inverse-primary: #39608F;
+  --md-sys-color-primary-fixed: #D5E3FF;
+  --md-sys-color-primary-fixed-dim: #A6C8FF;
+  --md-sys-color-on-primary-fixed: #001C3B;
+  --md-sys-color-on-primary-fixed-variant: #1C4876;
+
+  --md-sys-color-secondary: #BDC7DC;
+  --md-sys-color-on-secondary: #273141;
+  --md-sys-color-secondary-container: #3D4758;
+  --md-sys-color-on-secondary-container: #D9E3F8;
+  --md-sys-color-secondary-fixed: #D9E3F8;
+  --md-sys-color-secondary-fixed-dim: #BDC7DC;
+  --md-sys-color-on-secondary-fixed: #121C2B;
+  --md-sys-color-on-secondary-fixed-variant: #3D4758;
+
+  --md-sys-color-tertiary: #DABDE2;
+  --md-sys-color-on-tertiary: #3D2846;
+  --md-sys-color-tertiary-container: #553F5D;
+  --md-sys-color-on-tertiary-container: #F7D8FF;
+  --md-sys-color-tertiary-fixed: #F7D8FF;
+  --md-sys-color-tertiary-fixed-dim: #DABDE2;
+  --md-sys-color-on-tertiary-fixed: #271430;
+  --md-sys-color-on-tertiary-fixed-variant: #553F5D;
+
+  --md-sys-color-error: #FFB4AB;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000A;
+  --md-sys-color-on-error-container: #FFDAD6;
+
+  --md-sys-color-surface: #111318;
+  --md-sys-color-on-surface: #E2E2E9;
+  --md-sys-color-surface-variant: #43474E;
+  --md-sys-color-on-surface-variant: #C4C6CF;
+  --md-sys-color-surface-dim: #111318;
+  --md-sys-color-surface-bright: #37393E;
+  --md-sys-color-surface-container-lowest: #0C0E13;
+  --md-sys-color-surface-container-low: #191C20;
+  --md-sys-color-surface-container: #1D2024;
+  --md-sys-color-surface-container-high: #282A2F;
+  --md-sys-color-surface-container-highest: #33353A;
+  --md-sys-color-surface-tint: #A6C8FF;
+  --md-sys-color-inverse-surface: #E2E2E9;
+  --md-sys-color-inverse-on-surface: #2E3035;
+  --md-sys-color-background: #111318;
+  --md-sys-color-on-background: #E2E2E9;
+
+  --md-sys-color-outline: #8E9099;
+  --md-sys-color-outline-variant: #43474E;
+  --md-sys-color-shadow: #000000;
+  --md-sys-color-scrim: #000000;
+
+  /* 调和语义扩展角色 (Harmonized Semantic Roles) */
+  --md-sys-color-success: #7ADC9B;
+  --md-sys-color-on-success: #00391B;
+  --md-sys-color-success-container: #005229;
+  --md-sys-color-on-success-container: #96F9B5;
+
+  --md-sys-color-warning: #FFB95C;
+  --md-sys-color-on-warning: #462A00;
+  --md-sys-color-warning-container: #643F00;
+  --md-sys-color-on-warning-container: #FFDDB6;
+
+  /* --------------------------------------------------------------------------
+   * 6. System Elevation Composite Shadows (6 级双层物理高程阴影)
+   * ------------------------------------------------------------------------ */
+  --md-sys-elevation-level0: none;
+  --md-sys-elevation-level1:
+    0px 1px 2px 0px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0px 1px 3px 1px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level2:
+    0px 1px 2px 0px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0px 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level3:
+    0px 1px 3px 0px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0px 4px 8px 3px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level4:
+    0px 2px 3px 0px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0px 6px 10px 4px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
+  --md-sys-elevation-level5:
+    0px 4px 4px 0px color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent),
+    0px 8px 12px 6px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent);
 }
 
-* {
+/* 亮色主题映射 (Light Mode System Role Mapping) */
+[data-md-theme='light'] {
+  --md-sys-color-primary: #39608F;
+  --md-sys-color-on-primary: #FFFFFF;
+  --md-sys-color-primary-container: #D5E3FF;
+  --md-sys-color-on-primary-container: #001C3B;
+  --md-sys-color-inverse-primary: #A6C8FF;
+
+  --md-sys-color-secondary: #555F71;
+  --md-sys-color-on-secondary: #FFFFFF;
+  --md-sys-color-secondary-container: #D9E3F8;
+  --md-sys-color-on-secondary-container: #121C2B;
+
+  --md-sys-color-tertiary: #6E5676;
+  --md-sys-color-on-tertiary: #FFFFFF;
+  --md-sys-color-tertiary-container: #F7D8FF;
+  --md-sys-color-on-tertiary-container: #271430;
+
+  --md-sys-color-error: #BA1A1A;
+  --md-sys-color-on-error: #FFFFFF;
+  --md-sys-color-error-container: #FFDAD6;
+  --md-sys-color-on-error-container: #410002;
+
+  --md-sys-color-surface: #F9F9FF;
+  --md-sys-color-on-surface: #191C20;
+  --md-sys-color-surface-variant: #E0E2EC;
+  --md-sys-color-on-surface-variant: #43474E;
+  --md-sys-color-surface-dim: #D9D9E0;
+  --md-sys-color-surface-bright: #F9F9FF;
+  --md-sys-color-surface-container-lowest: #FFFFFF;
+  --md-sys-color-surface-container-low: #F3F3FA;
+  --md-sys-color-surface-container: #EDEDF4;
+  --md-sys-color-surface-container-high: #E7E8EE;
+  --md-sys-color-surface-container-highest: #E2E2E9;
+  --md-sys-color-inverse-surface: #2E3035;
+  --md-sys-color-inverse-on-surface: #F0F0F7;
+  --md-sys-color-background: #F9F9FF;
+  --md-sys-color-on-background: #191C20;
+
+  --md-sys-color-outline: #74777F;
+  --md-sys-color-outline-variant: #C4C6CF;
+
+  --md-sys-color-success: #166D36;
+  --md-sys-color-on-success: #FFFFFF;
+  --md-sys-color-success-container: #A2F5B4;
+  --md-sys-color-on-success-container: #00210B;
+
+  --md-sys-color-warning: #805600;
+  --md-sys-color-on-warning: #FFFFFF;
+  --md-sys-color-warning-container: #FFDDB6;
+  --md-sys-color-on-warning-container: #291800;
+}
+
+/* ============================================================================
+ * Google Material Symbols Rounded 可变图标系统规范
+ * 支持 FILL (0..1), wght (100..700), GRAD (-50..200), opsz (20..48) 四轴实时过渡
+ * ========================================================================== */
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: var(--md-icon-size, 20px);
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'liga';
+  user-select: none;
+  flex-shrink: 0;
+  font-variation-settings:
+    'FILL' var(--md-icon-fill, 0),
+    'wght' var(--md-icon-weight, 500),
+    'GRAD' var(--md-icon-grade, 0),
+    'opsz' var(--md-icon-opsz, 24);
+  transition:
+    font-variation-settings var(--md-sys-motion-spring-expressive-fast-effects),
+    transform var(--md-sys-motion-spring-expressive-fast-spatial),
+    color var(--md-sys-motion-spring-expressive-fast-effects);
+}
+
+/* ============================================================================
+ * 全局基础重置与表面衬底规范
+ * ========================================================================== */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
-  background-color: var(--bg-primary);
-  color: var(--text-main);
+  font-family: var(--md-ref-typeface-plain);
+  background-color: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
   line-height: 1.5;
-  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color var(--md-sys-motion-spring-expressive-default-effects),
+    color var(--md-sys-motion-spring-expressive-default-effects);
 }
 
-/* Scrollbar */
+/* 定制化 MD3 滚动条 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 32%, transparent);
+  border-radius: var(--md-sys-shape-corner-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
+  background: var(--md-sys-color-primary);
 }
 
-.container {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 20px;
+/* ============================================================================
+ * 30 级排版矩阵工具类 (Baseline & M3 Expressive Emphasized)
+ * ========================================================================== */
+.md3-headline-small {
+  font-family: var(--md-ref-typeface-brand);
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 400;
+  letter-spacing: 0px;
 }
-
-.card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 18px;
+.md3-headline-small-emphasized {
+  font-family: var(--md-ref-typeface-brand);
+  font-size: 24px;
+  line-height: 32px;
   font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.md3-title-large {
+  font-family: var(--md-ref-typeface-brand);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: 0px;
+}
+.md3-title-medium {
+  font-family: var(--md-ref-typeface-plain);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: 0.15px;
+}
+.md3-title-small {
+  font-family: var(--md-ref-typeface-plain);
   font-size: 14px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
 }
-
-.btn-primary {
-  background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
-  color: #ffffff;
-  box-shadow: 0 2px 10px var(--accent-glow);
+.md3-body-large {
+  font-family: var(--md-ref-typeface-plain);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  letter-spacing: 0.5px;
 }
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.95;
-  transform: translateY(-1px);
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background: #334155;
-  color: var(--text-main);
-}
-.btn-secondary:hover {
-  background: #475569;
-}
-
-.input-field {
-  width: 100%;
-  padding: 10px 14px;
-  background: #0f172a;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-main);
+.md3-body-medium {
+  font-family: var(--md-ref-typeface-plain);
   font-size: 14px;
-  outline: none;
-  transition: border-color 0.2s ease;
+  line-height: 20px;
+  font-weight: 400;
+  letter-spacing: 0.25px;
 }
-.input-field:focus {
-  border-color: var(--accent);
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
+.md3-body-small {
+  font-family: var(--md-ref-typeface-plain);
   font-size: 12px;
-  font-weight: 600;
-  border-radius: 9999px;
+  line-height: 16px;
+  font-weight: 400;
+  letter-spacing: 0.4px;
 }
-.badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-.badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-.badge-info { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+.md3-label-large {
+  font-family: var(--md-ref-typeface-plain);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+.md3-label-medium {
+  font-family: var(--md-ref-typeface-plain);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.md3-label-small {
+  font-family: var(--md-ref-typeface-plain);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
 
-/* Grid Layouts */
-.header-bar {
+/* ============================================================================
+ * 状态层 (State Layer)、径向涟漪 (Radial Ripple) 与无障碍焦点环 (Focus Ring)
+ * ========================================================================== */
+.md3-state-layer-host {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.md3-state-layer-host::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--md-ripple-color, currentColor);
+  opacity: 0;
+  transition: opacity var(--md-sys-motion-spring-expressive-fast-effects);
+}
+
+*:hover:not(:disabled) > .md3-state-layer-host::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+
+*:focus-visible:not(:disabled) > .md3-state-layer-host::before {
+  opacity: var(--md-sys-state-focus-opacity);
+}
+
+*:active:not(:disabled) > .md3-state-layer-host::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+.md3-ripple-wave {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--md-ripple-color, currentColor) 16%, transparent) 0%,
+    color-mix(in srgb, var(--md-ripple-color, currentColor) 10%, transparent) 68%,
+    transparent 100%
+  );
+  transform: scale(0.12);
+  opacity: 1;
+  animation: md3-ripple-expand 440ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+.md3-ripple-wave.is-closing {
+  opacity: 0;
+  transition: opacity 320ms cubic-bezier(0.31, 0.94, 0.34, 1);
+}
+
+@keyframes md3-ripple-expand {
+  from {
+    transform: scale(0.12);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+/* 标准双层无障碍焦点环 */
+.md3-focus-ring:focus-visible {
+  outline: 3px solid var(--md-sys-color-secondary);
+  outline-offset: 2px;
+}
+
+/* ============================================================================
+ * MD3 布局容器与响应式断点系统 (Window Size Classes)
+ * ========================================================================== */
+.md3-app-shell {
+  max-width: 1720px;
+  margin: 0 auto;
+  padding: 16px 20px 24px;
+  min-height: 100dvh;
   display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.md3-top-app-bar {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 16px;
+  padding: 14px 20px;
+  background-color: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  box-shadow: var(--md-sys-elevation-level1);
+  transition: background-color var(--md-sys-motion-spring-expressive-default-effects);
 }
 
-.main-layout {
+.md3-workspace-split {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  min-height: 720px;
+}
+
+.md3-pane-surface {
+  background-color: var(--md-sys-color-surface);
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: var(--md-sys-elevation-level0);
+  transition:
+    background-color var(--md-sys-motion-spring-expressive-default-effects),
+    border-radius var(--md-sys-motion-spring-expressive-default-spatial);
+}
+
+.md3-pane-drag-handle {
+  width: 20px;
+  cursor: col-resize;
   display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 24px;
+  place-items: center;
+  flex-shrink: 0;
+  user-select: none;
 }
 
+.md3-pane-drag-handle-pill {
+  width: 4px;
+  height: 48px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background-color: var(--md-sys-color-outline-variant);
+  transition:
+    width var(--md-sys-motion-spring-expressive-fast-spatial),
+    height var(--md-sys-motion-spring-expressive-fast-spatial),
+    background-color var(--md-sys-motion-spring-expressive-fast-effects);
+}
+
+.md3-pane-drag-handle:hover .md3-pane-drag-handle-pill,
+.md3-pane-drag-handle:active .md3-pane-drag-handle-pill {
+  width: 6px;
+  height: 64px;
+  background-color: var(--md-sys-color-primary);
+}
+
+/* 画布点阵微纹理衬底 */
+.md3-canvas-stage {
+  flex: 1;
+  min-height: 600px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: var(--md-sys-color-surface-container-lowest);
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--md-sys-color-outline-variant) 42%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 20px 20px;
+  border-radius: var(--md-sys-shape-corner-large-increased);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);
+  overflow: hidden;
+  padding: 20px;
+  position: relative;
+  transition: background-color var(--md-sys-motion-spring-expressive-default-effects);
+}
+
+/* 模态对话框动画 */
+@keyframes md3-dialog-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes md3-scrim-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Medium / Compact 窗口尺寸自适应 (< 1080px 自动堆叠为单列多窗格) */
 @media (max-width: 1080px) {
-  .main-layout {
-    grid-template-columns: 1fr;
+  .md3-workspace-split {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .md3-pane-drag-handle {
+    display: none;
+  }
+  .md3-control-pane-host {
+    width: 100% !important;
+    flex: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --md-sys-motion-spring-expressive-fast-spatial: 1ms linear;
+    --md-sys-motion-spring-expressive-default-spatial: 1ms linear;
+    --md-sys-motion-spring-expressive-slow-spatial: 1ms linear;
   }
 }

@@ -20,6 +20,7 @@ def create_contact_sheet(
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
     files = sorted([p for p in in_dir.glob("*.*") if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and not p.name.startswith(".")])
+    files = [p for p in files if not p.stem.startswith("contact_sheet") and not p.stem.startswith("sample_")]
     if not files:
         print(f"No image files found in {in_dir}")
         return
