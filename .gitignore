@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Large ML Weights & Model Files
+models/
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+*.engine
+
+# Cache & Runtime Storage
+.cache/
+cache/
+tmp/
+temp/
+*.log
+
+# Generated Outputs
+outputs/
+output/
+runs/
+*.tmp
+
+# GUI Dependencies
+gui/node_modules/
+gui/.vite/
+!gui/dist/
+!gui/dist/**
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local Test Assets & Clutter
+example/
+examples/*/
+input/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
