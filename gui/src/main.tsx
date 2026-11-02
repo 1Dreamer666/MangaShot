@@ -874,7 +874,7 @@ function Md3ConnectedButtonGroup<T extends string>({
             }}
           >
             {opt.tooltipText ? (
-              <Md3Tooltip title={opt.tooltipTitle} text={opt.tooltipText}>
+              <Md3Tooltip title={opt.tooltipTitle} text={opt.tooltipText} fullWidth>
                 {btnElement}
               </Md3Tooltip>
             ) : (
@@ -1088,6 +1088,8 @@ interface Md3TooltipProps {
   text?: string;
   children: React.ReactNode;
   position?: 'top' | 'bottom';
+  fullWidth?: boolean;
+  style?: React.CSSProperties;
 }
 
 const Md3Tooltip: React.FC<Md3TooltipProps> = ({
@@ -1095,6 +1097,8 @@ const Md3Tooltip: React.FC<Md3TooltipProps> = ({
   text,
   children,
   position = 'top',
+  fullWidth = false,
+  style,
 }) => {
   const [visible, setVisible] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -1112,7 +1116,13 @@ const Md3Tooltip: React.FC<Md3TooltipProps> = ({
 
   return (
     <div
-      style={{ position: 'relative', display: 'inline-flex', width: '100%' }}
+      style={{
+        position: 'relative',
+        display: fullWidth ? 'flex' : 'inline-flex',
+        width: fullWidth ? '100%' : 'auto',
+        flexShrink: fullWidth ? 1 : 0,
+        ...style,
+      }}
       onPointerEnter={handleEnter}
       onPointerLeave={handleLeave}
       onFocus={handleEnter}
@@ -2167,8 +2177,8 @@ export default function App() {
                       />
 
                       {/* 第 3 行：页码过滤输入框 + 独立基准色 Chip 开关 */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <Md3TextField
                             label="页码过滤"
                             value={task.pageRange}
@@ -2180,49 +2190,51 @@ export default function App() {
                         </div>
 
                         {/* 独立基准色开关 Chip */}
-                        <Md3Tooltip
-                          title={task.useCustomRef ? '独立基准色：已开启' : '共用全局色：已开启'}
-                          text={
-                            task.useCustomRef
-                              ? '当前章节单独指定专属基准色，点击可切回共用全局色'
-                              : '当前章节共用全局色彩基准图，点击可为该章节单独指定基准色'
-                          }
-                        >
-                          <button
-                            type="button"
-                            onClick={() => updateTask(task.id, { useCustomRef: !task.useCustomRef })}
-                            className="md3-focus-ring"
-                            style={{
-                              height: '42px',
-                              paddingInline: '12px',
-                              borderRadius: 'var(--md-sys-shape-corner-full)',
-                              border: task.useCustomRef
-                                ? 'none'
-                                : '1px solid var(--md-sys-color-outline-variant)',
-                              backgroundColor: task.useCustomRef
-                                ? 'var(--md-sys-color-secondary-container)'
-                                : 'var(--md-sys-color-surface-container-high)',
-                              color: task.useCustomRef
-                                ? 'var(--md-sys-color-on-secondary-container)'
-                                : 'var(--md-sys-color-on-surface-variant)',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              whiteSpace: 'nowrap',
-                              transition: 'all var(--md-sys-motion-spring-expressive-fast-effects)',
-                            }}
+                        <div style={{ flexShrink: 0 }}>
+                          <Md3Tooltip
+                            title={task.useCustomRef ? '独立基准色：已开启' : '共用全局色：已开启'}
+                            text={
+                              task.useCustomRef
+                                ? '当前章节单独指定专属基准色，点击可切回共用全局色'
+                                : '当前章节共用全局色彩基准图，点击可为该章节单独指定基准色'
+                            }
                           >
-                            <Md3Icon
-                              name={task.useCustomRef ? 'tune' : 'palette'}
-                              size={16}
-                              fill={task.useCustomRef ? 1 : 0}
-                            />
-                            <span>{task.useCustomRef ? '独立基准色' : '共用全局色'}</span>
-                          </button>
-                        </Md3Tooltip>
+                            <button
+                              type="button"
+                              onClick={() => updateTask(task.id, { useCustomRef: !task.useCustomRef })}
+                              className="md3-focus-ring"
+                              style={{
+                                height: '42px',
+                                paddingInline: '12px',
+                                borderRadius: 'var(--md-sys-shape-corner-full)',
+                                border: task.useCustomRef
+                                  ? 'none'
+                                  : '1px solid var(--md-sys-color-outline-variant)',
+                                backgroundColor: task.useCustomRef
+                                  ? 'var(--md-sys-color-secondary-container)'
+                                  : 'var(--md-sys-color-surface-container-high)',
+                                color: task.useCustomRef
+                                  ? 'var(--md-sys-color-on-secondary-container)'
+                                  : 'var(--md-sys-color-on-surface-variant)',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                whiteSpace: 'nowrap',
+                                transition: 'all var(--md-sys-motion-spring-expressive-fast-effects)',
+                              }}
+                            >
+                              <Md3Icon
+                                name={task.useCustomRef ? 'tune' : 'palette'}
+                                size={16}
+                                fill={task.useCustomRef ? 1 : 0}
+                              />
+                              <span>{task.useCustomRef ? '独立基准色' : '共用全局色'}</span>
+                            </button>
+                          </Md3Tooltip>
+                        </div>
                       </div>
 
                       {/* 当开启独立基准色时展开专用输入框 */}
