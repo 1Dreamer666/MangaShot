@@ -30,6 +30,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "save_qa": True,
         "save_json": True,
         "chapter_context": True,
+        "color_batch_size": 2,
     },
     "api": {
         "base_url": "http://127.0.0.1:8045/v1",
@@ -49,7 +50,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         },
         "megapixels": 0.5,
         "resolution_steps": 16,
-        "steps": 20,
+        # 2-step FLUX.2 Klein + the manga-colorization LoRA is the chosen
+        # default: 1 step was faster/warmer but too pale for this project,
+        # while 3-5 steps washed out further and cost 45-140% more time.
+        "steps": 2,
         "cfg": 4.0,
         "seed": 1234,
         "lora_strength": 1.0,
@@ -58,7 +62,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "timeout": 3600,
         "postprocess": {
             "radius": 2,
-            "sat": 1.0,
+            # AB backfill discards the model's L channel, so bright line-art
+            # areas otherwise lose chroma.  1.3 restores warm skin without
+            # yellowing the paper like a "warm skin" text prompt does.
+            "sat": 1.3,
             "white_threshold": 256.0,
             "neutral_mask": False,
         },
@@ -240,12 +247,25 @@ class MangaShotPipeline:
         target_mode = (mode or self.cfg["pipeline"].get("mode", "auto")).lower()
         t0 = time.time()
 
-        img, ocr_items = self.extract_page_items(img_path)
+        # Pure colorization does not need bubble detection/OCR; loading the page
+        # directly saves a large amount of time on single-page GUI runs.
+        fast_colorize = target_mode == "colorize"
+        if fast_colorize:
+            img = imread_unicode(img_path)
+            if img is None:
+                raise FileNotFoundError(f"Cannot read image: {img_path}")
+            ocr_items = []
+        else:
+            img, ocr_items = self.extract_page_items(img_path)
         h, w = img.shape[:2]
 
         is_bw, chroma_score = ContentInspector.is_grayscale_manga(img)
-        extracted_texts = [it["original"] for it in ocr_items]
-        needs_translation, detected_lang = ContentInspector.is_non_chinese(extracted_texts)
+        if fast_colorize:
+            extracted_texts = []
+            needs_translation, detected_lang = False, "unknown"
+        else:
+            extracted_texts = [it["original"] for it in ocr_items]
+            needs_translation, detected_lang = ContentInspector.is_non_chinese(extracted_texts)
         needs_color = is_bw
 
         if target_mode == "auto":
@@ -322,11 +342,11 @@ class MangaShotPipeline:
                 target_to_colorize = img
 
             # 2. Colorize text-free B&W image
-            try:
-                colorized_text_free = self.colorizer.colorize(target_to_colorize, reference_path_or_bgr=ref_file, color_mode=color_mode)
-            except ComfyColorizeError as e:
-                print(f"[Warning] ComfyUI colorization unavailable ({e}). Retaining clean B&W.")
-                colorized_text_free = target_to_colorize
+            colorized_text_free = self.colorizer.colorize(
+                target_to_colorize,
+                reference_path_or_bgr=ref_file,
+                color_mode=color_mode,
+            )
 
             if self.cfg["pipeline"].get("save_intermediate", True):
                 imwrite_unicode(intermediate_dir / f"{img_path.stem}_colorized_text_free.png", colorized_text_free)
@@ -389,6 +409,139 @@ class MangaShotPipeline:
             "output": str(output_path),
         }
 
+    def _process_colorize_batches(
+        self,
+        pages: List[Path],
+        out_p: Path,
+        reference: Optional[Union[str, Path]],
+        qa_dir: Optional[Path],
+        json_dir: Optional[Path],
+        color_mode: str,
+        force: bool,
+        t_batch_start: float,
+    ) -> List[Dict[str, Any]]:
+        """Fast colorize-only path: no OCR/detection; batch 2 pages per prompt."""
+        batch_size = int(self.cfg["pipeline"].get("color_batch_size", 2))
+        batch_size = max(1, batch_size)
+
+        pending: List[Tuple[Path, np.ndarray]] = []
+        summary: List[Dict[str, Any]] = []
+        for idx, page in enumerate(pages, 1):
+            out_file = out_p / f"{page.stem}.png"
+            if not force and out_file.is_file():
+                print(f"  [{idx}/{len(pages)}] Skipping existing: {page.name}")
+                continue
+            img = imread_unicode(page)
+            if img is None:
+                print(f"  [{idx}/{len(pages)}] Cannot read image: {page}")
+                summary.append({"page": page.name, "status": "error: cannot read image"})
+                continue
+            pending.append((page, img))
+
+        if not pending:
+            print("All pages are already processed. Exiting.")
+            return []
+
+        # ImageBatch needs equal dimensions.  018 is a double-page spread, so it
+        # naturally forms its own single-image batch.
+        groups: Dict[Tuple[int, int], List[Tuple[Path, np.ndarray]]] = {}
+        for page, img in pending:
+            groups.setdefault(img.shape[:2], []).append((page, img))
+
+        ref_file = reference or self.cfg["pipeline"].get("reference")
+        total_batches = sum((len(items) + batch_size - 1) // batch_size for items in groups.values())
+        batch_no = 0
+
+        for shape, items in groups.items():
+            for start in range(0, len(items), batch_size):
+                batch = items[start:start + batch_size]
+                batch_no += 1
+                stems = " + ".join(p.stem for p, _ in batch)
+                print(f"\n[Color batch {batch_no}/{total_batches}] {stems} ({shape[1]}x{shape[0]})")
+                batch_start = time.time()
+                try:
+                    colored = self.colorizer.colorize_batch(
+                        [img for _, img in batch],
+                        reference_path_or_bgr=ref_file,
+                        prefix=f"mangashot_{int(time.time())}_{batch_no:03d}",
+                        color_mode=color_mode,
+                        page_names=[p.stem for p, _ in batch],
+                    )
+                except Exception as e:
+                    elapsed = time.time() - batch_start
+                    print(f"[Color batch {batch_no}/{total_batches}] FAILED after {elapsed:.1f}s: {e}")
+                    for page, _ in batch:
+                        summary.append({"page": page.name, "status": f"error: {e}"})
+                    continue
+
+                elapsed = time.time() - batch_start
+                per_page = elapsed / max(1, len(batch))
+                print(f"[Color batch {batch_no}/{total_batches}] done in {elapsed / 60:.1f} min "
+                      f"({per_page:.1f}s/page)")
+
+                for (page, original), final_img in zip(batch, colored):
+                    out_file = out_p / f"{page.stem}.png"
+                    imwrite_unicode(out_file, final_img)
+                    h, w = original.shape[:2]
+
+                    if json_dir:
+                        json_file = json_dir / f"{page.stem}.json"
+                        json_file.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            is_bw, chroma_score = ContentInspector.is_grayscale_manga(original)
+                        except Exception:
+                            is_bw, chroma_score = True, 0.0
+                        meta = {
+                            "page": page.name,
+                            "action": "colorize",
+                            "is_bw": is_bw,
+                            "chroma_score": chroma_score,
+                            "detected_lang": "unknown",
+                            "width": w,
+                            "height": h,
+                            "bubbles": [],
+                            "seconds": round(per_page, 2),
+                            "batch_seconds": round(elapsed, 2),
+                            "output": str(out_file),
+                        }
+                        json_file.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+                    if qa_dir:
+                        qa_file = qa_dir / f"{page.stem}_compare.jpg"
+                        qa_file.parent.mkdir(parents=True, exist_ok=True)
+                        target_h = 1200
+                        def _thumb(im: np.ndarray) -> np.ndarray:
+                            sc = target_h / float(im.shape[0])
+                            return cv2.resize(im, (max(1, int(im.shape[1] * sc)), target_h),
+                                              interpolation=cv2.INTER_AREA)
+                        sep = np.full((target_h, 10, 3), 255, dtype=np.uint8)
+                        row = np.hstack([_thumb(original), sep, _thumb(final_img)])
+                        imwrite_unicode(qa_file, row, [cv2.IMWRITE_JPEG_QUALITY, 90])
+
+                    summary.append({
+                        "page": page.name,
+                        "action": "colorize",
+                        "bubbles": 0,
+                        "seconds": round(per_page, 2),
+                        "batch_seconds": round(elapsed, 2),
+                        "output": str(out_file),
+                        "status": "success",
+                    })
+
+        total_time = time.time() - t_batch_start
+        (out_p / "summary.json").write_text(
+            json.dumps({
+                "total_pages": len(pending),
+                "elapsed_seconds": round(total_time, 1),
+                "color_batch_size": batch_size,
+                "pages": summary,
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"\nColorization finished in {total_time / 60:.1f} minutes! "
+              f"Summary saved to {out_p / 'summary.json'}")
+        return summary
+
     def process_batch(
         self,
         input_dir: Union[str, Path],
@@ -399,11 +552,17 @@ class MangaShotPipeline:
         force: bool = False,
         page_range: Optional[str] = None,
         color_mode: str = "composite",
+        explicit_pages: Optional[List[Union[str, Path]]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Whole-Chapter / Batch Coordinator for MangaShot:
         Extracts all dialogue across chapter, performs narrative-coherent translation,
         and coordinates inpainting, colorization, and typesetting.
+
+        When ``explicit_pages`` is provided, exactly those image files are
+        processed (used by the GUI's discrete image picker and cross-directory
+        page groups).  Otherwise the directory is scanned with ``glob_pattern``
+        and filtered by ``page_range``.
         """
         import re
         in_p = Path(input_dir)
@@ -412,12 +571,32 @@ class MangaShotPipeline:
         qa_dir = out_p / "qa" if self.cfg["pipeline"].get("save_qa", True) else None
         json_dir = out_p / "json" if self.cfg["pipeline"].get("save_json", True) else None
 
-        pages = sorted([p for p in in_p.glob(glob_pattern) if p.is_file()])
-        if not pages:
-            pages = sorted([p for p in in_p.glob("*.*") if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}])
+        if explicit_pages:
+            pages = []
+            seen = set()
+            for raw in explicit_pages:
+                p = Path(raw)
+                if not p.is_absolute():
+                    candidate = in_p / p
+                    p = candidate if candidate.is_file() else p
+                if p.is_file():
+                    key = str(p.resolve()).lower()
+                    if key not in seen:
+                        seen.add(key)
+                        pages.append(p)
+            # Keep a stable, natural reading order for explicitly selected pages.
+            def _sort_key(p: Path):
+                nums = tuple(int(n) for n in re.findall(r"\d+", p.stem))
+                return (0, nums, p.name.lower()) if nums else (1, (), p.name.lower())
+
+            pages.sort(key=_sort_key)
+        else:
+            pages = sorted([p for p in in_p.glob(glob_pattern) if p.is_file()])
+            if not pages:
+                pages = sorted([p for p in in_p.glob("*.*") if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}])
 
         # Filter by page_range (supports "03-19", discrete "01, 05, 08-15", or "*")
-        if page_range and page_range.strip() != "*":
+        if not explicit_pages and page_range and page_range.strip() != "*":
             try:
                 allowed_nums = set()
                 for token in re.split(r"[,，\s]+", page_range.strip()):
@@ -445,6 +624,21 @@ class MangaShotPipeline:
         print(f"=== MangaShot Whole-Chapter Pipeline ===")
         print(f"Pages: {len(pages)} in {in_p} -> {out_p} (mode={target_mode})")
         t_batch_start = time.time()
+
+        # Fast path: pure colorization does not need bubble detection, OCR,
+        # translation or inpainting.  Batch 2 pages per ComfyUI sampler run
+        # exactly like MangaColour's --batch-size 2 path.
+        if target_mode == "colorize":
+            return self._process_colorize_batches(
+                pages=pages,
+                out_p=out_p,
+                reference=reference,
+                qa_dir=qa_dir,
+                json_dir=json_dir,
+                color_mode=color_mode,
+                force=force,
+                t_batch_start=t_batch_start,
+            )
 
         pages_to_process = []
         all_chapter_items: List[Dict[str, Any]] = []
