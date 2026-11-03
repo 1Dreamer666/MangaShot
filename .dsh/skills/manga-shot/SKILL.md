@@ -37,20 +37,26 @@ The checked-in defaults are measured on an RTX 3060 6 GB with FLUX.2 Klein 9B Q3
 | Setting | Value | Why |
 |---|---:|---|
 | `comfyui.steps` | `2` | 1 step is fastest but too pale; 3–5 steps are slower and colder/washed out. |
+| `comfyui.cfg` | `1.0` | Guidance-free: cuts U-Net forward passes in half, removes cyan/magenta fringing in skin highlights. |
 | `comfyui.megapixels` | `0.5` | Fits 6 GB while keeping enough chroma detail. |
-| `pipeline.color_batch_size` | `2` | Practical maximum on 6 GB; larger batches thrash VRAM. |
+| `pipeline.color_batch_size` | `3` | Measured sweet spot on 6 GB VRAM (~5.6 GB peak); steady state reaches 13.8 s / page. |
 | `comfyui.prompt` | `mngclranm` | LoRA trigger. An empty prompt degrades toward gray/white. |
 | `comfyui.postprocess.sat` | `1.3` | AB backfill discards the model L channel; 1.3 restores warm skin without yellowing paper. |
 | `comfyui.postprocess.white_threshold` | `256.0` | Protects paper and bubble whites. |
 | `--color-mode` | `composite` | Keeps original line art/text sharp; `direct` is only for painterly experiments. |
 
-Guardrails:
+Guardrails & ComfyUI Launch Flags:
 
+- Launch ComfyUI with `--fp16-vae` on 6 GB GPUs; it cleanly reduces VAE decoding peaks with zero visual quality loss.
+- Do **not** use `--highvram`: 6 GB cannot hold the 6.5 GB CLIP + 4.7 GB diffusion model together; forcing it causes catastrophic PCIe shared-memory thrashing (steps degrade from 7 s to 700+ s).
+- Do **not** use `--use-split-cross-attention`: breaks SDPA optimization on PyTorch 2.x, drops GPU-resident weights to 0 MB, and increases idle 0% utilization.
+- Do **not** use `--vram-headroom`: excessively evicts weights to system RAM, collapsing GPU utilization to ~20%.
 - Do **not** raise steps to “improve quality”. On this LoRA, 4–5 steps converge to a colder, whiter palette and cost 45–140% more time.
 - Do **not** remove the `mngclranm` trigger from the prompt.
 - Do **not** raise `sat` far above 1.3; clothing and backgrounds become over-saturated.
 - Pages of different dimensions (for example, a 2832×2000 double-page spread) must form separate batches; the pipeline does this automatically.
 - Restart `scripts/server.py` after changing any config value it loads at startup.
+- Two-stage workflow for highest throughput on 6 GB: run `shot.py -m translate` on the chapter first to cache translations and text-free bases; then run `colorize_cached.py --batch-size 3 --cfg 1.0` for uninterrupted GPU colorization.
 
 Measured two-page timings at 0.5 MP / batch 2: 1 step ≈ 27.7 s, 2 steps ≈ 50.5 s, 3 steps ≈ 74.2 s, 4 steps ≈ 98.5 s, 5 steps ≈ 121.0 s. Model-load time varies.
 
@@ -103,7 +109,7 @@ When detection, OCR, and translation are already cached as `<stem>_text_free_bw.
 python scripts/colorize_cached.py --pages 006,007 --force
 ```
 
-- Defaults: `steps=2`, `megapixels=0.5`, `batch-size=2`, `sat=1.3`, `prompt=mngclranm`.
+- Defaults: `steps=2`, `cfg=1.0`, `megapixels=0.5`, `batch-size=3`, `sat=1.3`, `prompt=mngclranm`.
 - Use `--no-typeset` to colorize only and skip cached text.
 - Point `--intermediate`, `--json-dir`, and `--output-dir` at the actual cached directories when they are not the defaults.
 - The script groups pages by dimensions and preserves natural page order.
@@ -164,8 +170,9 @@ Open `http://127.0.0.1:7860`.
 - **自检**：`python scripts/check_setup.py --config config.example.json`
 - **进阶汉化上色单页**：`python scripts/shot.py -i <图片> -o <输出> -m advanced -r <参考图> --color-mode composite`
 - **整话批量连贯处理**：`python scripts/shot.py -i <文件夹> -o <输出> -m auto -r <参考图> --color-mode composite --contact-sheet`
-- **缓存重上色**：`python scripts/colorize_cached.py --pages 006,007 --force`（默认 2 step、sat 1.3、batch 2）
+- **缓存重上色**：`python scripts/colorize_cached.py --pages 006,007 --force`（默认 2 step、cfg 1.0、sat 1.3、batch 3）
 - **仅重嵌字**：加载 `intermediate/<stem>_colorized_text_free.png` + `json/<stem>.json`，用 `MangaTypesetter` 重绘，纯 CPU，不重上色。
 - **Web 界面**：`python scripts/server.py`，访问 `http://127.0.0.1:7860`。
-- **核心默认值**：`steps=2`、`megapixels=0.5`、`color_batch_size=2`、`prompt=mngclranm`、`sat=1.3`、`composite`。
+- **核心默认值**：`steps=2`、`cfg=1.0`、`megapixels=0.5`、`color_batch_size=3`、`prompt=mngclranm`、`sat=1.3`、`composite`。
+- **ComfyUI 推荐参数**：`--fp16-vae`；严禁 `--highvram`、`--use-split-cross-attention`、`--vram-headroom`。
 - **不要**用 1 step 出成品（太淡），也不要用 4–5 step“提质量”（更冷、更白、更慢）。

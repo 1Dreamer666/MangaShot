@@ -43,14 +43,28 @@ The checked-in defaults are the measured optimum for the bundled `manga_coloriza
 | Setting | Default | Rationale |
 |---|---:|---|
 | `comfyui.steps` | `2` | 1 step is fastest but visibly pale; 3–5 steps wash out further and cost 45–140% more time. |
+| `comfyui.cfg` | `1.0` | Guidance-free: halves U-Net sampling passes, avoids negative prompt overhead, and removes cyan/magenta fringing in highlights. |
 | `comfyui.megapixels` | `0.5` | Keeps the 9B model inside 6 GB while retaining enough chroma detail. |
-| `pipeline.color_batch_size` | `2` | Best throughput on 6 GB; larger batches thrash VRAM. |
+| `pipeline.color_batch_size` | `3` | Measured sweet spot on 6 GB VRAM (~5.6 GB peak); steady-state throughput reaches 13.8 s / page. |
 | `comfyui.prompt` | `mngclranm` | LoRA trigger. An empty prompt degrades toward gray/white. |
 | `comfyui.postprocess.sat` | `1.3` | AB backfill discards the model's L channel; 1.3 restores warm skin without yellowing paper. |
 | `comfyui.postprocess.white_threshold` | `256.0` | Protects pure paper and bubble whites. |
 | `--color-mode` | `composite` | Keeps original line art and text sharp; `direct` is only for painterly experiments. |
 
-Do not "improve" quality by raising steps: on this LoRA, 4–5 steps converge to a colder, whiter palette. Keep the trigger word in the prompt. Measured two-page timings at 0.5 MP / batch 2: 1 step ≈ 27.7 s, 2 steps ≈ 50.5 s, 3 steps ≈ 74.2 s, 4 steps ≈ 98.5 s, 5 steps ≈ 121.0 s (model-load time varies).
+Do not "improve" quality by raising steps: on this LoRA, 4–5 steps converge to a colder, whiter palette. Keep the trigger word in the prompt. Measured timings at 0.5 MP / batch 3 (steady state with cfg=1.0): ~13.8 s / page (~41.4 s per 3-page batch).
+
+#### ComfyUI Startup Flags for 6 GB GPUs
+Launch ComfyUI with:
+```powershell
+python main.py --base-directory "C:\NEED_FOR_SYSTEM_CHR" `
+  --extra-model-paths-config "config/extra_model_paths.yaml" `
+  --port 8000 --disable-auto-launch --fp16-vae
+```
+- **Recommended**: `--fp16-vae` lowers VAE memory peak cleanly with zero visual degradation.
+- **Do NOT use `--highvram`**: 6 GB cannot fit both the 6.5 GB text encoder and 4.7 GB diffusion model simultaneously. Forcing `--highvram` causes severe PCIe virtual memory swapping, slowing sampling from 7 s/step to over 700 s/step.
+- **Do NOT use `--use-split-cross-attention`**: breaks PyTorch 2.x SDPA attention optimization, reduces GPU resident weights to 0 MB, and increases GPU idle percentage.
+- **Do NOT use `--vram-headroom`**: evicts diffusion layers to system RAM, causing GPU utilization to collapse to ~20%.
+- **Two-stage workflow (fastest)**: run `shot.py -m translate` on the full chapter dialogue first (CPU/API bound, creates clean text-free bases and coherent translations), then run `colorize_cached.py --batch-size 3 --cfg 1.0` for pure, uninterrupted GPU colorization.
 
 ### 7. Sharp CJK Typesetting with Symbol Fallback
 - Microsoft YaHei / SimHei cover Chinese but not common manga symbols such as `♡`, `♥`, `♦`, `♣`, `♠`, `♪`, `♬`, `✕`, or `❤`.
@@ -71,7 +85,7 @@ The TypeScript GUI supports:
   ```powershell
   python scripts/colorize_cached.py --pages 006,007 --force
   ```
-  Defaults: `steps=2`, `sat=1.3`, `prompt=mngclranm`, batch 2.
+  Defaults: `steps=2`, `cfg=1.0`, `sat=1.3`, `prompt=mngclranm`, batch 3.
 - When only typesetting needs a fix (for example, a missing symbol), do **not** re-colorize. The advanced pipeline saves `intermediate/<stem>_colorized_text_free.png` and `json/<stem>.json`; reload the colorized text-free background and re-run `MangaTypesetter` on the cached bubbles. This is CPU-only and leaves the colorization pixel-identical.
 
 ---
@@ -191,7 +205,7 @@ python scripts/shot.py `
 - `config.example.json` is loaded when `scripts/server.py` starts. Restart the server after changing `steps`, `sat`, `prompt`, or model paths.
 - `steps=2` is intentional. 1 step is too pale; 3–5 steps are slower and colder. Keep `prompt="mngclranm"`; empty prompts turn pages gray.
 - `postprocess.sat=1.3` applies only to `composite` mode. It compensates for the AB backfill's discarded L channel; raising it further can over-saturate clothing and backgrounds.
-- `pipeline.color_batch_size=2` is the 6 GB sweet spot. Pages with different dimensions (for example, double-page spreads) are automatically split into separate batches.
+- `pipeline.color_batch_size=3` and `comfyui.cfg=1.0` are the 6 GB sweet spot (measured ~5.6 GB VRAM peak). Pages with different dimensions (for example, double-page spreads) are automatically split into separate batches.
 - The server reads the example config by default (`config_path="config.example.json"`). Keep local secrets and user manga pages out of the tracked config and `inputs/`.
 - For typeset-only fixes, reuse `intermediate/<stem>_colorized_text_free.png` and `json/<stem>.json`; re-colorizing is unnecessary and would change the GPU output.
 

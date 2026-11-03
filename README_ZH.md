@@ -45,14 +45,28 @@ MangaShot 全面提供两种不同取向的上色渲染架构（在 GUI、CLI �
 | 参数 | 默认值 | 选择理由 |
 |---|---:|---|
 | `comfyui.steps` | `2` | 1 step 最快但画面明显偏淡；3–5 step 反而更冷、更白，耗时增加 45–140%。 |
+| `comfyui.cfg` | `1.0` | Guidance-free：直接减半 U-Net 扩散采样耗时，消除高光肤色蓝绿/品红色斑，肤色更自然。 |
 | `comfyui.megapixels` | `0.5` | 9B 模型在 6 GB 显存内可运行，同时保留足够色度细节。 |
-| `pipeline.color_batch_size` | `2` | 6 GB 下的吞吐最佳；更大 batch 会抖动显存。 |
+| `pipeline.color_batch_size` | `3` | 6 GB 显存下的最佳甜蜜点（峰值约 5.6 GB）；稳态下吞吐可达 13.8 秒/页。 |
 | `comfyui.prompt` | `mngclranm` | LoRA 触发词；空提示词会退化成灰白。 |
 | `comfyui.postprocess.sat` | `1.3` | AB 回填丢弃了模型的 L 通道，1.3 可恢复暖肤色又不会把纸面染黄。 |
 | `comfyui.postprocess.white_threshold` | `256.0` | 保护纯白纸面与气泡。 |
 | `--color-mode` | `composite` | 保留原始线稿与文字锐度；`direct` 仅适合厚涂/油画风格实验。 |
 
-不要用“提高 step 数”来提升质量：该 LoRA 在 4–5 step 会收敛到更冷、更白的配色。务必保留触发词。0.5 MP / batch 2 的双页实测耗时：1 step ≈ 27.7 秒，2 step ≈ 50.5 秒，3 step ≈ 74.2 秒，4 step ≈ 98.5 秒，5 step ≈ 121.0 秒（首次加载模型会额外增加时间）。
+不要用“提高 step 数”来提升质量：该 LoRA 在 4–5 step 会收敛到更冷、更白的配色。务必保留触发词。0.5 MP / batch 3 / cfg 1.0 的稳态实测耗时：每组 3 页仅约 41.4 秒（平均 13.8 秒/页）。
+
+#### 6 GB 显卡 ComfyUI 启动参数指南
+启动 ComfyUI 时建议：
+```powershell
+python main.py --base-directory "C:\NEED_FOR_SYSTEM_CHR" `
+  --extra-model-paths-config "config/extra_model_paths.yaml" `
+  --port 8000 --disable-auto-launch --fp16-vae
+```
+- **推荐启用 `--fp16-vae`**：有效削平 VAE 解码时的显存峰值，无画质损失。
+- **严禁启用 `--highvram`**：6 GB 显存无法同时容纳 6.5 GB 文本编码器与 4.7 GB 扩散模型。强开 `--highvram` 会引发 Windows 虚拟显存跨 PCIe 总线恶性抖动，导致单步采样从 7 秒飙升到 700 秒以上。
+- **切勿启用 `--use-split-cross-attention`**：破坏 PyTorch 2.x 的 SDPA 原生优化，使 GPU 模型常驻量降为 0 MB，反向增加利用率掉零空转。
+- **切勿启用 `--vram-headroom`**：会粗暴将扩散层踢回内存，导致 GPU 利用率崩跌至 20% 左右。
+- **推荐两阶段极速流水线**：先执行 `shot.py -m translate` 一次性完成全话连贯汉化并输出干净黑白无字底图（CPU/API 主导）；再执行 `colorize_cached.py --batch-size 3 --cfg 1.0` 纯 GPU 满血批量上色。
 
 ### 7. 中文嵌字与符号字体回退
 
@@ -77,7 +91,7 @@ TypeScript GUI 支持：
   ```powershell
   python scripts/colorize_cached.py --pages 006,007 --force
   ```
-  默认 `steps=2`、`sat=1.3`、`prompt=mngclranm`、双页 batch。
+  默认 `steps=2`、`cfg=1.0`、`sat=1.3`、`prompt=mngclranm`、三页 batch。
 - 如果只是嵌字需要修正（例如缺符号），**不要重新上色**。高级流水线会保存 `intermediate/<stem>_colorized_text_free.png` 和 `json/<stem>.json`；直接加载无字彩色底图并对缓存气泡重新运行 `MangaTypesetter` 即可。该过程纯 CPU，上色像素完全不变。
 
 ---
@@ -197,7 +211,7 @@ python scripts/shot.py `
 - `scripts/server.py` 启动时读取 `config.example.json`。修改 `steps`、`sat`、`prompt` 或模型路径后必须重启服务。
 - `steps=2` 是有意为之：1 step 太淡，3–5 step 更慢且更冷。保留 `prompt="mngclranm"`，空提示词会让画面发灰。
 - `postprocess.sat=1.3` 仅作用于 `composite` 模式，用于补偿 AB 回填丢弃的 L 通道；继续调高会让服装和背景过饱和。
-- `pipeline.color_batch_size=2` 是 6 GB 显存的最佳值；不同尺寸的页面（例如双页跨页）会自动拆成独立 batch。
+- `pipeline.color_batch_size=3` 与 `comfyui.cfg=1.0` 是 6 GB 显存的最佳组合（实测峰值约 5.6 GB）；不同尺寸的页面（例如双页跨页）会自动拆成独立 batch。
 - 服务默认读取示例配置（`config_path="config.example.json"`）。不要把本地密钥或用户漫画页提交到配置或 `inputs/`。
 - 仅修正嵌字时，复用 `intermediate/<stem>_colorized_text_free.png` 与 `json/<stem>.json` 即可；重新上色既没必要，也会改变 GPU 输出。
 
