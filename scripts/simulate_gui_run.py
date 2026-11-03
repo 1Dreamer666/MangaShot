@@ -10,7 +10,8 @@ def main():
         "reference": "examples/MOMOUMIX 与桃酱在海边的本（《少女与战车》）/MOMOUMIX_001.jpg",
         "mode": "advanced",
         "color_mode": "composite",
-        "page_range": "05-19",
+        "page_range": "05-06",
+        "chapter_name": "第 01 话",
         "glob": "*.jpg",
         "force": True,
     }
@@ -21,7 +22,7 @@ def main():
 
     t0 = time.time()
     try:
-        resp = requests.post(url, json=payload, timeout=900)
+        resp = requests.post(url, json=payload, timeout=7200)
     except Exception as e:
         print(f"[GUI Simulation] Request failed: {e}")
         return

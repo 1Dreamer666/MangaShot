@@ -13,6 +13,7 @@ from .inpainter import MangaInpainter
 from .typesetter import MangaTypesetter
 from .postprocess import composite_chroma, guided_filter
 from .colorizer import MangaColorizer, ComfyColorizeError
+from .titles import infer_main_title
 from .pipeline import MangaShotPipeline
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "guided_filter",
     "MangaColorizer",
     "ComfyColorizeError",
+    "infer_main_title",
     "MangaShotPipeline",
 ]

@@ -25,6 +25,13 @@ interface ProcessResult {
   items?: DialogueItem[];
 }
 
+/** 跨目录选页分组：挂在所属章节卡片下，最终合并到该章节提交 */
+interface CrossDirGroup {
+  id: string;
+  dirPath: string;
+  files: string[];
+}
+
 /** 跨目录多章节任务队列卡片项定义 */
 interface BatchTaskItem {
   id: string;
@@ -34,6 +41,7 @@ interface BatchTaskItem {
   useCustomRef: boolean;
   customRefPath: string;
   selectedFiles?: string[];
+  selectionGroups?: CrossDirGroup[];
 }
 
 /* ============================================================================
@@ -1284,7 +1292,9 @@ export default function App() {
   const globalRefPickerRef = useRef<HTMLInputElement | null>(null);
   const customRefPickerRef = useRef<HTMLInputElement | null>(null);
   const taskFolderPickerRef = useRef<HTMLInputElement | null>(null);
+  const taskFolderNativeDirPickerRef = useRef<HTMLInputElement | null>(null);
   const activePickerTaskIdRef = useRef<string | null>(null);
+  const pickerBusyRef = useRef<boolean>(false);
 
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [dialogueItems, setDialogueItems] = useState<DialogueItem[]>([]);
@@ -1325,6 +1335,25 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  /* 浏览器备用文件选择器被取消时，及时复位状态提示，避免卡在“正在唤起...” */
+  useEffect(() => {
+    const inputs = [
+      singleFilePickerRef.current,
+      globalRefPickerRef.current,
+      customRefPickerRef.current,
+      taskFolderPickerRef.current,
+      taskFolderNativeDirPickerRef.current,
+    ].filter(Boolean) as HTMLInputElement[];
+    const handleCancel = () => {
+      activePickerTaskIdRef.current = null;
+      setStatusMsg('已取消浏览器文件选择');
+    };
+    inputs.forEach((input) => input.addEventListener('cancel', handleCancel));
+    return () => {
+      inputs.forEach((input) => input.removeEventListener('cancel', handleCancel));
+    };
+  }, []);
+
   const loadMomoumixPreset = () => {
     setIsBatch(true);
     setMode('advanced');
@@ -1344,6 +1373,10 @@ export default function App() {
     setStatusMsg('已载入 MOMOUMIX 03-19 测试预设 (色彩基准: 封面 MOMOUMIX_001.jpg)');
   };
 
+  const getTaskDisplayName = (task: BatchTaskItem, idx: number): string => {
+    return task.name && task.name.trim() ? task.name : `第 ${String(idx + 1).padStart(2, '0')} 话`;
+  };
+
   /* 队列卡片增删改克隆操作 */
   const updateTask = (taskId: string, partial: Partial<BatchTaskItem>) => {
     setBatchQueue((prev) =>
@@ -1354,7 +1387,6 @@ export default function App() {
   const handleCloneTask = (taskId: string) => {
     const target = batchQueue.find((t) => t.id === taskId);
     if (!target) return;
-    const nextIdx = batchQueue.length + 1;
     let nextDir = target.dirPath;
     const matchNum = nextDir.match(/(\d+)(?!.*\d)/);
     if (matchNum) {
@@ -1366,11 +1398,11 @@ export default function App() {
     const newTask: BatchTaskItem = {
       ...target,
       id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: `第 ${String(nextIdx).padStart(2, '0')} 话`,
+      name: '',
       dirPath: nextDir,
     };
     setBatchQueue((prev) => [...prev, newTask]);
-    setStatusMsg(`已克隆任务 -> ${newTask.name} (${newTask.dirPath})`);
+    setStatusMsg(`已克隆任务 -> 第 ${String(batchQueue.length + 1).padStart(2, '0')} 话 (${nextDir})`);
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -1379,13 +1411,14 @@ export default function App() {
       return;
     }
     setBatchQueue((prev) => prev.filter((t) => t.id !== taskId));
+    setStatusMsg('已移除章节，队列序号已即时同步重排');
   };
 
   const handleAddFolderTask = () => {
     const nextIdx = batchQueue.length + 1;
     const newTask: BatchTaskItem = {
       id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: `第 ${String(nextIdx).padStart(2, '0')} 话`,
+      name: '',
       dirPath: '',
       pageRange: '*',
       useCustomRef: false,
@@ -1393,20 +1426,338 @@ export default function App() {
       selectedFiles: [],
     };
     setBatchQueue((prev) => [...prev, newTask]);
+    setStatusMsg(`已添加新章节 -> 第 ${String(nextIdx).padStart(2, '0')} 话`);
   };
 
-  const handleAddFilesTask = () => {
-    const nextIdx = batchQueue.length + 1;
-    const newTask: BatchTaskItem = {
-      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: `跨目录选页 #${nextIdx}`,
-      dirPath: '',
-      pageRange: '',
-      useCustomRef: false,
-      customRefPath: '',
+  const fileNameOf = (filePath: string): string => {
+    const parts = String(filePath || '').split(/[\\/]/);
+    return parts[parts.length - 1] || filePath;
+  };
+
+  const computePageRange = (files: string[]): string => {
+    const numbers: number[] = [];
+    for (const f of files) {
+      const m = fileNameOf(f).match(/\d+/g);
+      if (m) numbers.push(parseInt(m[m.length - 1], 10));
+    }
+    numbers.sort((a, b) => a - b);
+    if (numbers.length === 0) return '*';
+    const minNum = numbers[0];
+    const maxNum = numbers[numbers.length - 1];
+    if (numbers.length >= 2 && maxNum - minNum === numbers.length - 1) {
+      return `${String(minNum).padStart(2, '0')}-${String(maxNum).padStart(2, '0')}`;
+    }
+    return numbers.map((n) => String(n).padStart(2, '0')).join(', ');
+  };
+
+  const handleBrowseFolderForTask = async (taskId: string) => {
+    if (pickerBusyRef.current) {
+      setStatusMsg('选择窗口已打开，请先完成当前选择');
+      return;
+    }
+    pickerBusyRef.current = true;
+    const currentTask = batchQueue.find((t) => t.id === taskId);
+    setStatusMsg('正在唤起文件夹选择窗口...');
+    try {
+      const resp = await fetch('/api/browse_dir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current: currentTask?.dirPath || '' }),
+      });
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      if (data.status === 'cancelled') {
+        setStatusMsg('已取消文件夹选择');
+        return;
+      }
+      if (data.status === 'error') {
+        setStatusMsg(`文件夹选择失败: ${data.message || '未知错误'}`);
+        return;
+      }
+      if (data.path) {
+        let detectedRange = currentTask?.pageRange || '*';
+        try {
+          const inspResp = await fetch('/api/inspect_dir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dir: data.path }),
+          });
+          if (inspResp.ok) {
+            const inspData = await inspResp.json();
+            if (inspData.range && inspData.range !== '*') {
+              detectedRange = inspData.range;
+            }
+          }
+        } catch (e) {}
+
+        updateTask(taskId, {
+          dirPath: data.path,
+          pageRange: detectedRange,
+          selectedFiles: [],
+        });
+        setStatusMsg(`已成功选择章节文件夹: ${data.path} (范围: ${detectedRange})`);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend browse_dir failed, using webkitdirectory fallback:', err);
+      setStatusMsg('后端目录选择器不可用，已切换到浏览器备用选择器');
+      activePickerTaskIdRef.current = taskId;
+      if (taskFolderNativeDirPickerRef.current) {
+        taskFolderNativeDirPickerRef.current.value = '';
+        taskFolderNativeDirPickerRef.current.click();
+      }
+      return;
+    } finally {
+      pickerBusyRef.current = false;
+    }
+    setStatusMsg('就绪');
+  };
+
+  const handlePickFilesForTask = async (taskId: string) => {
+    if (pickerBusyRef.current) {
+      setStatusMsg('选择窗口已打开，请先完成当前选择');
+      return;
+    }
+    pickerBusyRef.current = true;
+    const currentTask = batchQueue.find((t) => t.id === taskId);
+    setStatusMsg('正在唤起图片选择窗口 (支持多选)...');
+    try {
+      const resp = await fetch('/api/browse_files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current: currentTask?.dirPath || '' }),
+      });
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      if (data.status === 'cancelled') {
+        setStatusMsg('已取消图片选择');
+        return;
+      }
+      if (data.status === 'error') {
+        setStatusMsg(`图片选择失败: ${data.message || '未知错误'}`);
+        return;
+      }
+      const picked: string[] = Array.isArray(data.paths) && data.paths.length > 0
+        ? data.paths
+        : (data.files || []).map((fn: string) => (data.dir ? `${data.dir}\\${fn}` : fn));
+      if (picked.length > 0) {
+        const existing = currentTask?.selectedFiles || [];
+        const merged = Array.from(new Set([...existing, ...picked]));
+        updateTask(taskId, {
+          dirPath: data.dir || currentTask?.dirPath || '',
+          pageRange: computePageRange(merged),
+          selectedFiles: merged,
+        });
+        setStatusMsg(`已并入本章节 ${picked.length} 张图片，当前共 ${merged.length} 张，完整目录: ${data.dir}`);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend browse_files failed, using fallback:', err);
+      setStatusMsg('后端图片选择器不可用，已切换到浏览器备用选择器');
+      activePickerTaskIdRef.current = taskId;
+      if (taskFolderPickerRef.current) {
+        taskFolderPickerRef.current.value = '';
+        taskFolderPickerRef.current.click();
+      }
+      return;
+    } finally {
+      pickerBusyRef.current = false;
+    }
+    setStatusMsg('就绪');
+  };
+
+  const handleAddCrossDirSelection = async (taskId?: string) => {
+    if (pickerBusyRef.current) {
+      setStatusMsg('选择窗口已打开，请先完成当前选择');
+      return;
+    }
+    pickerBusyRef.current = true;
+
+    const fallbackId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const targetTask = taskId
+      ? batchQueue.find((t) => t.id === taskId) || null
+      : batchQueue.length > 0
+        ? batchQueue[batchQueue.length - 1]
+        : null;
+    const targetId = targetTask?.id || fallbackId;
+    const targetIdx = targetTask ? batchQueue.findIndex((t) => t.id === targetTask.id) : batchQueue.length;
+    const groupNo = (targetTask?.selectionGroups?.length || 0) + 1;
+
+    setStatusMsg(`正在为「${targetTask ? getTaskDisplayName(targetTask, Math.max(targetIdx, 0)) : '(第01话)'}」唤起跨目录选页窗口...`);
+    try {
+      const resp = await fetch('/api/browse_files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current: targetTask?.dirPath || '' }),
+      });
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      if (data.status === 'cancelled') {
+        setStatusMsg('已取消跨目录选页');
+        return;
+      }
+      if (data.status === 'error') {
+        setStatusMsg(`跨目录选页失败: ${data.message || '未知错误'}`);
+        return;
+      }
+      const picked: string[] = Array.isArray(data.paths) && data.paths.length > 0
+        ? data.paths
+        : (data.files || []).map((fn: string) => (data.dir ? `${data.dir}\\${fn}` : fn));
+      if (picked.length === 0) {
+        setStatusMsg('未选择任何图片');
+        return;
+      }
+
+      setBatchQueue((prev) => {
+        let next = [...prev];
+        let target = next.find((t) => t.id === targetId);
+        if (!target) {
+          // 队列为空时，第一个章节选择器作为 (第01话)
+          target = {
+            id: targetId,
+            name: '(第01话)',
+            dirPath: '',
+            pageRange: '*',
+            useCustomRef: false,
+            customRefPath: '',
+            selectedFiles: [],
+            selectionGroups: [],
+          };
+          next = [...next, target];
+        }
+        const groups = target.selectionGroups || [];
+        const newGroup: CrossDirGroup = {
+          id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          dirPath: data.dir || '',
+          files: Array.from(new Set(picked)),
+        };
+        return next.map((t) =>
+          t.id === targetId ? { ...t, selectionGroups: [...groups, newGroup] } : t
+        );
+      });
+      setStatusMsg(`已添加跨目录选页 ${String(groupNo).padStart(2, '0')}：${picked.length} 张图片，完整目录: ${data.dir}`);
+    } catch (err) {
+      console.warn('Cross-directory picker failed:', err);
+      setStatusMsg(`跨目录选页失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      pickerBusyRef.current = false;
+    }
+  };
+
+  const handleAppendFilesToGroup = async (taskId: string, groupId: string) => {
+    if (pickerBusyRef.current) {
+      setStatusMsg('选择窗口已打开，请先完成当前选择');
+      return;
+    }
+    pickerBusyRef.current = true;
+    const task = batchQueue.find((t) => t.id === taskId);
+    const group = task?.selectionGroups?.find((g) => g.id === groupId);
+    setStatusMsg('正在追加跨目录图片...');
+    try {
+      const resp = await fetch('/api/browse_files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current: group?.dirPath || task?.dirPath || '' }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (data.status === 'cancelled') {
+        setStatusMsg('已取消追加图片');
+        return;
+      }
+      if (data.status === 'error') {
+        setStatusMsg(`追加图片失败: ${data.message || '未知错误'}`);
+        return;
+      }
+      const picked: string[] = Array.isArray(data.paths) && data.paths.length > 0
+        ? data.paths
+        : (data.files || []).map((fn: string) => (data.dir ? `${data.dir}\\${fn}` : fn));
+      if (picked.length === 0) {
+        setStatusMsg('未选择任何图片');
+        return;
+      }
+      setBatchQueue((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          return {
+            ...t,
+            selectionGroups: (t.selectionGroups || []).map((g) =>
+              g.id === groupId ? { ...g, files: Array.from(new Set([...g.files, ...picked])) } : g
+            ),
+          };
+        })
+      );
+      setStatusMsg(`已追加 ${picked.length} 张图片到跨目录选页，完整目录: ${data.dir}`);
+    } catch (err) {
+      setStatusMsg(`追加图片失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      pickerBusyRef.current = false;
+    }
+  };
+
+  const removeCrossDirGroup = (taskId: string, groupId: string) => {
+    setBatchQueue((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? { ...t, selectionGroups: (t.selectionGroups || []).filter((g) => g.id !== groupId) }
+          : t
+      )
+    );
+    setStatusMsg('已移除跨目录选页分组');
+  };
+
+  const removeFileFromGroup = (taskId: string, groupId: string, filePath: string) => {
+    setBatchQueue((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              selectionGroups: (t.selectionGroups || []).map((g) =>
+                g.id === groupId ? { ...g, files: g.files.filter((f) => f !== filePath) } : g
+              ),
+            }
+          : t
+      )
+    );
+  };
+
+  const handleTaskNativeDirPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    const taskId = activePickerTaskIdRef.current;
+    if (!files || files.length === 0 || !taskId) return;
+
+    const fileList = Array.from(files);
+    let inferredDir = '';
+    const firstRel = (fileList[0] as any).webkitRelativePath as string | undefined;
+    if (firstRel && firstRel.includes('/')) {
+      inferredDir = firstRel.substring(0, firstRel.lastIndexOf('/'));
+    }
+
+    const numbers: number[] = [];
+    for (const f of fileList) {
+      const m = f.name.match(/\d+/g);
+      if (m) {
+        numbers.push(parseInt(m[m.length - 1], 10));
+      }
+    }
+    numbers.sort((a, b) => a - b);
+    let rangeStr = '*';
+    if (numbers.length > 0) {
+      rangeStr = `${String(numbers[0]).padStart(2, '0')}-${String(numbers[numbers.length - 1]).padStart(2, '0')}`;
+    }
+
+    updateTask(taskId, {
+      dirPath: inferredDir || fileList[0].name,
+      pageRange: rangeStr,
       selectedFiles: [],
-    };
-    setBatchQueue((prev) => [...prev, newTask]);
+    });
+    setStatusMsg(`已选择目录 ${inferredDir || '本地目录'} (含 ${fileList.length} 页, 范围: ${rangeStr})`);
   };
 
   const triggerTaskFilePicker = (taskId: string) => {
@@ -1513,8 +1864,43 @@ export default function App() {
     try {
       if (isBatch) {
         let allSummaries: any[] = [];
+        let inferredMainTitle = '';
+
+        // Collect all effective input paths for title inference
+        const allPaths = batchQueue.flatMap((t) => {
+          const effDir = baseDir
+            ? t.dirPath.startsWith('/') || t.dirPath.includes(':')
+              ? t.dirPath
+              : `${baseDir.replace(/[\\/]$/, '')}/${t.dirPath}`
+            : t.dirPath;
+          const paths: string[] = [
+            effDir || (t.selectedFiles && t.selectedFiles.length > 0 ? t.selectedFiles[0] : ''),
+          ];
+          (t.selectionGroups || []).forEach((g) => {
+            paths.push(g.dirPath || (g.files.length > 0 ? g.files[0] : ''));
+          });
+          return paths;
+        }).filter(Boolean);
+
+        // Pre-infer main title if paths exist
+        if (allPaths.length > 0) {
+          try {
+            const titleResp = await fetch('/api/infer_title', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paths: allPaths }),
+            });
+            if (titleResp.ok) {
+              const td = await titleResp.json();
+              if (td.title) inferredMainTitle = td.title;
+            }
+          } catch (e) {
+            console.warn('Title inference request failed:', e);
+          }
+        }
 
         for (const [idx, task] of batchQueue.entries()) {
+          const chapterName = getTaskDisplayName(task, idx);
           const effectiveDir = baseDir
             ? task.dirPath.startsWith('/') || task.dirPath.includes(':')
               ? task.dirPath
@@ -1524,8 +1910,12 @@ export default function App() {
           const effectiveRef =
             task.useCustomRef && task.customRefPath ? task.customRefPath : referencePath;
 
+          const extraGroups = (task.selectionGroups || [])
+            .filter((g) => g.files.length > 0)
+            .map((g) => ({ dir: g.dirPath, files: g.files }));
+
           setStatusMsg(
-            `正在执行任务队列 (${idx + 1}/${batchQueue.length}): [${task.name}] 路径: ${effectiveDir} (范围: ${task.pageRange || '全部'})...`
+            `正在执行任务队列 (${idx + 1}/${batchQueue.length}): [${chapterName}] ${inferredMainTitle ? `《${inferredMainTitle}》` : ''} 范围: ${task.pageRange || '全部'}${(task.selectedFiles?.length || 0) + extraGroups.reduce((n, g) => n + g.files.length, 0) > 0 ? `，另有 ${(task.selectedFiles?.length || 0) + extraGroups.reduce((n, g) => n + g.files.length, 0)} 张离散选页` : ''}...`
           );
 
           const resp = await fetch('/api/batch', {
@@ -1538,6 +1928,11 @@ export default function App() {
               color_mode: colorMode,
               page_range: task.pageRange === '*' ? undefined : task.pageRange,
               glob: '*.jpg',
+              main_title: inferredMainTitle,
+              chapter_name: chapterName,
+              all_paths: allPaths,
+              selected_files: task.selectedFiles && task.selectedFiles.length > 0 ? task.selectedFiles : undefined,
+              extra_groups: extraGroups,
             }),
           });
 
@@ -1552,8 +1947,20 @@ export default function App() {
         }
 
         setBatchSummary(allSummaries);
+        if (allSummaries.length > 0) {
+          const lastItem = allSummaries[allSummaries.length - 1];
+          setResult({
+            page: lastItem.page,
+            action: lastItem.action || mode,
+            bubbles: lastItem.bubbles || 0,
+            seconds: lastItem.seconds || 0,
+            output: lastItem.output || '',
+            qa_url: lastItem.qa_url,
+            final_url: lastItem.final_url,
+          });
+        }
         setStatusMsg(
-          `跨目录任务队列全部完成！共处理 ${batchQueue.length} 个章节、${allSummaries.length} 个页面。`
+          `跨目录任务队列全部完成！共处理 ${batchQueue.length} 个章节、${allSummaries.length} 个页面。${inferredMainTitle ? `输出主目录: ${inferredMainTitle}` : ''}`
         );
       } else {
         setStatusMsg(`正在处理单页: ${inputPath}...`);
@@ -2099,7 +2506,9 @@ export default function App() {
                     </span>
                   </div>
 
-                  {batchQueue.map((task) => (
+                  {batchQueue.map((task, idx) => {
+                    const chapterName = getTaskDisplayName(task, idx);
+                    return (
                     <div
                       key={task.id}
                       style={{
@@ -2112,7 +2521,7 @@ export default function App() {
                         gap: '12px',
                       }}
                     >
-                      {/* 第 1 行：章节序号徽标与操作工具栏 (浏览 / 克隆 / 删除) */}
+                      {/* 第 1 行：章节序号徽标与操作工具栏 (选择文件夹 / 选多图 / 克隆 / 删除) */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span
@@ -2125,7 +2534,7 @@ export default function App() {
                               fontWeight: 700,
                             }}
                           >
-                            {task.name}
+                            {chapterName}
                           </span>
                           {task.selectedFiles && task.selectedFiles.length > 0 && (
                             <span
@@ -2140,14 +2549,39 @@ export default function App() {
                               已选 {task.selectedFiles.length} 页
                             </span>
                           )}
+                          {task.selectionGroups && task.selectionGroups.length > 0 && (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: 'var(--md-sys-shape-corner-full)',
+                                backgroundColor: 'var(--md-sys-color-tertiary-container)',
+                                color: 'var(--md-sys-color-on-tertiary-container)',
+                                fontSize: '11px',
+                              }}
+                            >
+                              跨目录 {task.selectionGroups.length} 组 / {task.selectionGroups.reduce((n, g) => n + g.files.length, 0)} 页
+                            </span>
+                          )}
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          {/* 浏览文件/文件夹按钮 */}
+                          {/* 浏览选择章节文件夹按钮 (调用原生目录选择器) */}
                           <Md3IconButton
                             icon="folder_supervised"
-                            tooltip="浏览本地图片/文件夹 (支持多选自动提取页码)"
-                            onClick={() => triggerTaskFilePicker(task.id)}
+                            tooltip="选择整章文件夹 (直接弹出系统目录选择框)"
+                            onClick={() => handleBrowseFolderForTask(task.id)}
+                          />
+                          {/* 挑选离散图片按钮 */}
+                          <Md3IconButton
+                            icon="add_photo_alternate"
+                            tooltip="挑选离散图片并入本章节 (自动分析页码与完整路径)"
+                            onClick={() => handlePickFilesForTask(task.id)}
+                          />
+                          {/* 添加跨目录选页分组 (归属于本章节) */}
+                          <Md3IconButton
+                            icon="library_add"
+                            tooltip="跨目录选页并入本章节 (输出为 章节名-跨目录选页xx)"
+                            onClick={() => handleAddCrossDirSelection(task.id)}
                           />
                           {/* 克隆本章节按钮 */}
                           <Md3IconButton
@@ -2174,6 +2608,7 @@ export default function App() {
                         onChange={(e) => updateTask(task.id, { dirPath: e.target.value })}
                         leadingIcon={<Md3Icon name="folder_open" size={18} />}
                         placeholder="输入子文件夹名或完整绝对路径"
+                        supportingText={task.dirPath ? `完整路径: ${task.dirPath}` : '输入完整绝对路径或点击上方按钮选择'}
                       />
 
                       {/* 第 3 行：页码过滤输入框 + 独立基准色 Chip 开关 */}
@@ -2313,10 +2748,10 @@ export default function App() {
                               }}
                             >
                               <Md3Icon name="image" size={12} />
-                              <span>{fn}</span>
+                              <span>{fileNameOf(fn)}</span>
                               <button
                                 type="button"
-                                title={`移除 ${fn}`}
+                                title={`移除 ${fileNameOf(fn)}`}
                                 onClick={() => removeFileFromTask(task.id, fn)}
                                 style={{
                                   border: 'none',
@@ -2344,27 +2779,137 @@ export default function App() {
                           )}
                         </div>
                       )}
+
+                      {/* 跨目录选页分组：归属于本章节，提交时合并给后端 */}
+                      {(task.selectionGroups || []).map((group, gIdx) => (
+                        <div
+                          key={group.id}
+                          style={{
+                            padding: '10px',
+                            borderRadius: 'var(--md-sys-shape-corner-medium)',
+                            backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                            borderLeft: '3px solid var(--md-sys-color-tertiary)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 'var(--md-sys-shape-corner-small)',
+                                  backgroundColor: 'var(--md-sys-color-tertiary-container)',
+                                  color: 'var(--md-sys-color-on-tertiary-container)',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                跨目录选页 {String(gIdx + 1).padStart(2, '0')}
+                              </span>
+                              <span style={{ fontSize: '11px', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                                已选 {group.files.length} 页
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
+                              <Md3IconButton
+                                icon="playlist_add"
+                                tooltip="向此分组追加图片"
+                                onClick={() => handleAppendFilesToGroup(task.id, group.id)}
+                              />
+                              <Md3IconButton
+                                icon="delete"
+                                tooltip="移除此跨目录选页分组"
+                                onClick={() => removeCrossDirGroup(task.id, group.id)}
+                                colorVar="var(--md-sys-color-error)"
+                              />
+                            </div>
+                          </div>
+
+                          {group.dirPath && (
+                            <div
+                              style={{
+                                fontSize: '10px',
+                                color: 'var(--md-sys-color-on-surface-variant)',
+                                wordBreak: 'break-all',
+                              }}
+                              title={group.dirPath}
+                            >
+                              {group.dirPath}
+                            </div>
+                          )}
+
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {group.files.slice(0, 8).map((filePath) => (
+                              <span
+                                key={filePath}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '2px 8px',
+                                  borderRadius: '9999px',
+                                  backgroundColor: 'var(--md-sys-color-surface-container)',
+                                  color: 'var(--md-sys-color-on-surface)',
+                                  fontSize: '11px',
+                                }}
+                                title={filePath}
+                              >
+                                <Md3Icon name="image" size={12} />
+                                <span>{fileNameOf(filePath)}</span>
+                                <button
+                                  type="button"
+                                  title={`移除 ${fileNameOf(filePath)}`}
+                                  onClick={() => removeFileFromGroup(task.id, group.id, filePath)}
+                                  style={{
+                                    border: 'none',
+                                    background: 'none',
+                                    cursor: 'pointer',
+                                    padding: 0,
+                                    display: 'flex',
+                                    color: 'var(--md-sys-color-on-surface-variant)',
+                                  }}
+                                >
+                                  <Md3Icon name="close" size={12} />
+                                </button>
+                              </span>
+                            ))}
+                            {group.files.length > 8 && (
+                              <span style={{ fontSize: '11px', color: 'var(--md-sys-color-on-surface-variant)', alignSelf: 'center' }}>
+                                +{group.files.length - 8} 页...
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {/* 队列底部添加操作栏 */}
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <Md3Button
                       variant="tonal"
                       size="sm"
                       onClick={handleAddFolderTask}
                       leadingIcon={<Md3Icon name="create_new_folder" size={18} />}
                     >
-                      添加章节文件夹
+                      添加新章节任务
                     </Md3Button>
                     <Md3Button
                       variant="outlined"
                       size="sm"
-                      onClick={handleAddFilesTask}
+                      onClick={() => handleAddCrossDirSelection()}
                       leadingIcon={<Md3Icon name="add_photo_alternate" size={18} />}
+                      title="选择任意目录中的图片，自动并入上方最后一个章节；输出为“章节名-跨目录选页01”"
                     >
-                      添加跨目录选页
+                      跨目录选页
                     </Md3Button>
+                    <span style={{ fontSize: '11px', color: 'var(--md-sys-color-on-surface-variant)' }}>
+                      选页会并入上方章节，不新增独立任务
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2888,6 +3433,15 @@ export default function App() {
         accept="image/*"
         style={{ display: 'none' }}
         onChange={handleTaskFilesPicked}
+      />
+      <input
+        type="file"
+        ref={taskFolderNativeDirPickerRef}
+        // @ts-ignore
+        webkitdirectory="true"
+        directory=""
+        style={{ display: 'none' }}
+        onChange={handleTaskNativeDirPicked}
       />
     </div>
   );
