@@ -11,9 +11,10 @@ can skip detection/OCR/inpaint/translation and only redo the GPU-heavy part:
     3. Re-typeset the cached Chinese translations on top.
 
 Defaults are the tuned optimum for this LoRA on 6 GB VRAM:
-``steps=2``, ``megapixels=0.5``, batch 2 pages, trigger prompt
-``mngclranm``, and ``sat=1.3`` for the AB backfill.  1 step was rejected
-as too pale; 3-5 steps only washed the colors out further.
+``steps=2``, ``cfg=1.0`` (guidance-free, cuts U-Net forward passes in half),
+``megapixels=0.5``, batch 3 pages, trigger prompt ``mngclranm``, and
+``sat=1.3`` for the AB backfill.  1 step was rejected as too pale;
+3-5 steps only washed the colors out further.
 
 Example:
     python scripts/colorize_cached.py --pages 003,005
@@ -60,7 +61,7 @@ def stem_for(page_no: int) -> str:
     return f"MOMOUMIX_{page_no:03d}"
 
 
-def build_colorizer(steps: int, megapixels: float, timeout: int, sat: float,
+def build_colorizer(steps: int, cfg: float, megapixels: float, timeout: int, sat: float,
                     prompt: str, negative: str) -> MangaColorizer:
     return MangaColorizer(
         comfyui_url="http://127.0.0.1:8000",
@@ -74,7 +75,7 @@ def build_colorizer(steps: int, megapixels: float, timeout: int, sat: float,
             "megapixels": megapixels,
             "resolution_steps": 16,
             "steps": steps,
-            "cfg": 4.0,
+            "cfg": cfg,
             "seed": 1234,
             "lora_strength": 1.0,
             "prompt": prompt,
@@ -101,8 +102,10 @@ def main() -> int:
                         help="Directory for final typeset PNGs")
     parser.add_argument("--reference", default=str(DEFAULT_REFERENCE))
     parser.add_argument("--steps", type=int, default=2)
+    parser.add_argument("--cfg", type=float, default=1.0,
+                        help="CFG guidance scale (1.0 for fast guidance-free distilled Klein)")
     parser.add_argument("--megapixels", type=float, default=0.5)
-    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--batch-size", type=int, default=3)
     parser.add_argument("--sat", type=float, default=1.3,
                         help="AB chroma multiplier; 1.3 compensates for pale skin after AB backfill")
     parser.add_argument("--prompt", default="mngclranm",
@@ -127,7 +130,7 @@ def main() -> int:
     if not reference.is_file():
         raise FileNotFoundError(f"Reference image not found: {reference}")
 
-    colorizer = build_colorizer(args.steps, args.megapixels, args.timeout,
+    colorizer = build_colorizer(args.steps, args.cfg, args.megapixels, args.timeout,
                                 args.sat, args.prompt, args.negative)
     typesetter = MangaTypesetter(
         font_path="C:/Windows/Fonts/msyh.ttc",
@@ -237,6 +240,7 @@ def main() -> int:
     meta_out = output_dir / f"summary_step{args.steps}.json"
     meta_out.write_text(json.dumps({
         "steps": args.steps,
+        "cfg": args.cfg,
         "megapixels": args.megapixels,
         "batch_size": batch_size,
         "sat": args.sat,

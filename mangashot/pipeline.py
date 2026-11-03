@@ -30,7 +30,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "save_qa": True,
         "save_json": True,
         "chapter_context": True,
-        "color_batch_size": 2,
+        "color_batch_size": 3,
     },
     "api": {
         "base_url": "http://127.0.0.1:8045/v1",
@@ -54,7 +54,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         # default: 1 step was faster/warmer but too pale for this project,
         # while 3-5 steps washed out further and cost 45-140% more time.
         "steps": 2,
-        "cfg": 4.0,
+        # Guidance-free (cfg=1.0) halves U-Net sampling passes, avoids negative prompt
+        # overhead, and eliminates cyan/magenta fringing in high-key highlights.
+        "cfg": 1.0,
         "seed": 1234,
         "lora_strength": 1.0,
         "prompt": "mngclranm",
@@ -420,8 +422,8 @@ class MangaShotPipeline:
         force: bool,
         t_batch_start: float,
     ) -> List[Dict[str, Any]]:
-        """Fast colorize-only path: no OCR/detection; batch 2 pages per prompt."""
-        batch_size = int(self.cfg["pipeline"].get("color_batch_size", 2))
+        """Fast colorize-only path: no OCR/detection; batch 3 pages per prompt."""
+        batch_size = int(self.cfg["pipeline"].get("color_batch_size", 3))
         batch_size = max(1, batch_size)
 
         pending: List[Tuple[Path, np.ndarray]] = []

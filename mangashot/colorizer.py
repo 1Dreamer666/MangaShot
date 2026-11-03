@@ -45,8 +45,8 @@ class MangaColorizer:
         self.cfg = cfg or {
             "megapixels": 0.5,
             "resolution_steps": 16,
-            "steps": 20,
-            "cfg": 4.0,
+            "steps": 2,
+            "cfg": 1.0,
             "seed": 1234,
             "lora_strength": 1.0,
             "prompt": "mngclranm",
@@ -54,8 +54,8 @@ class MangaColorizer:
             "timeout": 3600,
             "postprocess": {
                 "radius": 2,
-                "sat": 1.0,
-                "white_threshold": 245.0,
+                "sat": 1.3,
+                "white_threshold": 256.0,
                 "neutral_mask": False,
             },
         }
@@ -298,7 +298,7 @@ class MangaColorizer:
             "105": {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["104", 0], "latent": ["106", 0]}},
             "63": {"class_type": "CFGGuider", "inputs": {
                 "model": ["88", 0], "positive": ["107", 0], "negative": ["105", 0],
-                "cfg": float(self.cfg.get("cfg", 4.0)),
+                "cfg": float(self.cfg.get("cfg", 1.0)),
             }},
             "73": {"class_type": "RandomNoise", "inputs": {"noise_seed": int(self.cfg.get("seed", 1234))}},
             "61": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "euler"}},
