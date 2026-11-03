@@ -38,6 +38,48 @@ MangaShot 全面提供两种不同取向的上色渲染架构（在 GUI、CLI �
 - **人类用户选项**：现代化的 **TypeScript Web GUI**（遵循 Google Material Design 3 Expressive 规范构建），全站统一使用官方 **Material Symbols Rounded** 可变矢量图标。内置双联画 QA 对比滑块、台词与坐标在线校对表、**多章节任务队列卡片（Multi-Folder Batch Queue，支持跨目录一键克隆与独立基准色）**及**原生文件/多图混选自动归类器**，由 Python 后端（`scripts/server.py`）托管于 `http://127.0.0.1:7860`。
 - **AI 智能体选项**：内置专为 `dsh` 打造的 **`.dsh` Skill**（`.dsh/skills/manga-shot/SKILL.md`），工作区根目录预置软连接，AI 可直接调用。
 
+### 6. FLUX.2 上色默认参数（6 GB 显存实测）
+
+仓库内的默认值是在 RTX 3060 6 GB 上针对 `manga_colorization` LoRA 实测得到的最优组合：
+
+| 参数 | 默认值 | 选择理由 |
+|---|---:|---|
+| `comfyui.steps` | `2` | 1 step 最快但画面明显偏淡；3–5 step 反而更冷、更白，耗时增加 45–140%。 |
+| `comfyui.megapixels` | `0.5` | 9B 模型在 6 GB 显存内可运行，同时保留足够色度细节。 |
+| `pipeline.color_batch_size` | `2` | 6 GB 下的吞吐最佳；更大 batch 会抖动显存。 |
+| `comfyui.prompt` | `mngclranm` | LoRA 触发词；空提示词会退化成灰白。 |
+| `comfyui.postprocess.sat` | `1.3` | AB 回填丢弃了模型的 L 通道，1.3 可恢复暖肤色又不会把纸面染黄。 |
+| `comfyui.postprocess.white_threshold` | `256.0` | 保护纯白纸面与气泡。 |
+| `--color-mode` | `composite` | 保留原始线稿与文字锐度；`direct` 仅适合厚涂/油画风格实验。 |
+
+不要用“提高 step 数”来提升质量：该 LoRA 在 4–5 step 会收敛到更冷、更白的配色。务必保留触发词。0.5 MP / batch 2 的双页实测耗时：1 step ≈ 27.7 秒，2 step ≈ 50.5 秒，3 step ≈ 74.2 秒，4 step ≈ 98.5 秒，5 step ≈ 121.0 秒（首次加载模型会额外增加时间）。
+
+### 7. 中文嵌字与符号字体回退
+
+- 微软雅黑 / 黑体覆盖中文，但不包含漫画常用的 `♡`、`♥`、`♦`、`♣`、`♠`、`♪`、`♬`、`✕`、`❤` 等符号。
+- `MangaTypesetter` 现在会按字符回退到符号字体（Windows 使用 Segoe UI Symbol；Linux 使用 DejaVu Sans / Noto Symbols），中文仍使用配置的 CJK 字体。
+- 横排按连续字体分段绘制，避免描边接缝；竖排逐字选择字体。
+- 这样 `嘿♡嘿♡`、`啊♥` 等气泡不会再出现“口口”方框。
+
+### 8. GUI 批量工作流
+
+TypeScript GUI 支持：
+
+- **多章节任务队列**：添加、克隆、删除章节卡片，顺序执行，并可为每章指定独立基准色。
+- **离散选页**：可挑选单页或跨目录分组；显式选页优先于页码过滤。
+- **原生选择器**：系统文件/目录选择框，失败时回退浏览器选择器。
+- **标题推断**：通过 OpenAI 兼容 LLM 推断系列名，输出到 `outputs/<系列>/<章节>/`；队列会显式传递章节名。
+- **批量 API**：`POST /api/batch` 支持 `selected_files` 与 `extra_groups`，保持自然页序，并支持 `force`。
+
+### 9. 缓存重上色与“仅重嵌字”
+
+- `scripts/colorize_cached.py` 可对已有无字底图（`<stem>_text_free_bw.png`）重新上色并重嵌缓存译文，跳过检测、OCR 与翻译：
+  ```powershell
+  python scripts/colorize_cached.py --pages 006,007 --force
+  ```
+  默认 `steps=2`、`sat=1.3`、`prompt=mngclranm`、双页 batch。
+- 如果只是嵌字需要修正（例如缺符号），**不要重新上色**。高级流水线会保存 `intermediate/<stem>_colorized_text_free.png` 和 `json/<stem>.json`；直接加载无字彩色底图并对缓存气泡重新运行 `MangaTypesetter` 即可。该过程纯 CPU，上色像素完全不变。
+
 ---
 
 ## 目录结构
@@ -47,7 +89,7 @@ MangaShot 全面提供两种不同取向的上色渲染架构（在 GUI、CLI �
 ├── .dsh/                    # AI Agent 技能配置目录
 │   └── skills/manga-shot/
 │       └── SKILL.md         # dsh 专用技能说明与操作手册
-├── .gitignore               # 严格排除 models/、outputs/、.cache/、node_modules/
+├── .gitignore               # 严格排除 models/、outputs/、inputs/、.cache/、node_modules/
 ├── LICENSE                  # AGPL-3.0 开源协议
 ├── README.md                # 英文说明文档
 ├── README_ZH.md             # 中文说明文档
@@ -62,14 +104,18 @@ MangaShot 全面提供两种不同取向的上色渲染架构（在 GUI、CLI �
 │   ├── ocr.py               # Manga-OCR 封装（支持 safetensors 与 CUDA）
 │   ├── translator.py        # 带坐标控制 JSON 协议与缓存的大模型翻译客户端
 │   ├── inpainter.py         # 轮廓保护型连通域气泡擦除模块
-│   ├── typesetter.py        # CJK 竖排横排与自适应字号排版引擎
+│   ├── typesetter.py        # CJK 排版、字号自适应与符号字体回退
 │   ├── postprocess.py       # 引导滤波线稿高频亮度复合模块
 │   ├── colorizer.py         # ComfyUI FLUX.2 上色客户端与工作流引擎
 │   ├── pipeline.py          # 全功能流水线协同调度器
+│   ├── titles.py            # 基于 LLM 的系列/章节标题推断
 │   └── utils.py             # 宽字符图像读写、阅读顺序重排工具
 ├── scripts/
 │   ├── shot.py              # 统一命令行入口（单页/整话批量/展板生成）
 │   ├── server.py            # TypeScript Web GUI 托管服务（标准库零额外依赖）
+│   ├── colorize_cached.py   # 对缓存无字底图重上色并重嵌译文
+│   ├── native_picker.py     # GUI 原生文件/目录选择器
+│   ├── simulate_gui_run.py  # 无头 GUI/API 批量模拟辅助脚本
 │   ├── check_setup.py       # 环境、模型、网关连通性自检诊断脚本
 │   ├── download_models.ps1  # 自动化模型链接与下载脚本
 │   └── make_contact_sheet.py# 批量成果自适应拼板生成脚本
@@ -143,6 +189,26 @@ python scripts/shot.py `
 | `both` | 强制双重处理 | 无论输入状态如何，一律执行汉化与上色全流程。 |
 | `translate` | 仅汉化翻译 | 仅执行气泡检测、OCR、连贯翻译、气泡擦除与排版嵌字。 |
 | `colorize` | 仅全彩上色 | 仅基于参考图执行 FLUX.2 扩散上色与线稿高频复合。 |
+
+---
+
+## 配置与调参说明
+
+- `scripts/server.py` 启动时读取 `config.example.json`。修改 `steps`、`sat`、`prompt` 或模型路径后必须重启服务。
+- `steps=2` 是有意为之：1 step 太淡，3–5 step 更慢且更冷。保留 `prompt="mngclranm"`，空提示词会让画面发灰。
+- `postprocess.sat=1.3` 仅作用于 `composite` 模式，用于补偿 AB 回填丢弃的 L 通道；继续调高会让服装和背景过饱和。
+- `pipeline.color_batch_size=2` 是 6 GB 显存的最佳值；不同尺寸的页面（例如双页跨页）会自动拆成独立 batch。
+- 服务默认读取示例配置（`config_path="config.example.json"`）。不要把本地密钥或用户漫画页提交到配置或 `inputs/`。
+- 仅修正嵌字时，复用 `intermediate/<stem>_colorized_text_free.png` 与 `json/<stem>.json` 即可；重新上色既没必要，也会改变 GPU 输出。
+
+---
+
+## 故障排查
+
+- **ComfyUI 报 `OSError: [Errno 22] Invalid argument`（来自 tqdm）**：ComfyUI 继承的 stdout 管道已失效。用日志文件重定向 stdout/stderr 后重启 ComfyUI，不要通过改 step 绕过。
+- **上色后发灰/发白**：确认 `prompt` 含 `mngclranm`（空提示词会发灰），且 composite 模式的 `postprocess.sat` 为 `1.3`。
+- **`♡` / `♥` / `♦` 显示成 `口`**：当前 CJK 字体缺少该字形。确保符号回退字体可用（Windows 为 `seguisym.ttf`），或在 `MangaTypesetter.SYMBOL_FALLBACK_CHARS` 中补充字符。
+- **GUI 显示 ComfyUI 离线**：先在配置的 `comfyui.base_url` 启动 ComfyUI；健康状态只是提示，服务离线时批量任务会逐页失败。
 
 ---
 
